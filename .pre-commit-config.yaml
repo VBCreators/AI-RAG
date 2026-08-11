@@ -10,8 +10,9 @@
 
 default_install_hook_types: [pre-commit, commit-msg, pre-push]
 default_stages: [pre-commit]
-fail_fast: false          # Run every hook even if one fails → full feedback for developers
+fail_fast: false                    # Always give full feedback
 minimum_pre_commit_version: "3.7.0"
+
 
 repos:
   # ===========================================================================
@@ -150,7 +151,7 @@ repos:
         stages: [pre-push]
         pass_filenames: false
         # Adjust args to your project layout
-        args: ["--config-file=pyproject.toml", "src/", "app/"]
+        args: ["--config-file=pyproject.toml", "src", "app"]
 
       # --- Unit + integration tests --------------------------------------------
       - id: pytest
@@ -160,7 +161,7 @@ repos:
         types: [python]
         stages: [pre-push]
         pass_filenames: false
-        args: ["-q", "--tb=short", "--cov=src", "--cov-fail-under=80"]  # adjust coverage threshold
+        args: ["-q", "--tb=short", "--cov=src", "--cov=app", "--cov-fail-under=80"]
 
       # --- Security tests / SAST (heavier than Bandit) -------------------------
       - id: bandit-full
@@ -170,7 +171,7 @@ repos:
         types: [python]
         stages: [pre-push]
         pass_filenames: false
-        args: ["-r", "src/", "-c", "pyproject.toml", "-ll"]  # -ll = medium+ severity
+        args: ["-r", "src", "app", "-c", "pyproject.toml", "-ll"]
 
 
       # --- Semgrep -------------------------------------------------------------
@@ -180,10 +181,20 @@ repos:
         language: system
         stages: [pre-push]
         pass_filenames: false
-        args: ["--config=auto", "--error", "src/"]
+        args: ["--config=auto", "--error", "--quiet", "src", "app"]
 
 
-      # --- Docker / build validation -------------------------------------------
+      # Dockerfile linting (Hadolint)
+      - id: hadolint
+        name: Hadolint (Dockerfile)
+        entry: hadolint
+        language: system
+        stages: [pre-push]
+        files: Dockerfile.*
+        pass_filenames: true
+        args: ["--ignore", "DL3008"]   # adjust ignores as needed
+
+      # Docker build smoke test (optional – can be slow)
       - id: docker-build
         name: Docker build validation
         entry: docker
@@ -209,4 +220,10 @@ repos:
         language: system
         stages: [pre-push]
         pass_filenames: false
-        args: ["-c", "from app.main import app; print(app.openapi())"]
+        args:
+          - "-c"
+          - |
+            from app.main import app
+            schema = app.openapi()
+            assert "openapi" in schema
+            print("OpenAPI schema OK")
