@@ -1,46 +1,212 @@
-repo:
+# =============================================================================
+# Production-grade pre-commit configuration
+# Focus: Prevent secrets, private keys, and common security foot-guns from
+# ever entering the repository. Also enforces basic hygiene and Python quality.
+#
+# Install:  pre-commit install
+# Run all:  pre-commit run --all-files
+# Update:   pre-commit autoupdate
+# =============================================================================
 
-  # Secret detection
+default_install_hook_types: [pre-commit, commit-msg, pre-push]
+default_stages: [pre-commit]
+fail_fast: false          # Run every hook even if one fails → full feedback for developers
+minimum_pre_commit_version: "3.7.0"
+
+repos:
+  # ===========================================================================
+  # 1. SECRET & CREDENTIAL LEAK DETECTION (Highest priority)
+  # ===========================================================================
+
+  # Gitleaks – Industry-standard secret scanner
+  # Detects API keys, AWS/GCP/Azure tokens, database passwords, JWTs,
+  # private keys, Slack/GitHub/Stripe tokens, high-entropy strings, etc.
+  # Scans only staged changes (very fast). Uses a large built-in ruleset.
   - repo: https://github.com/gitleaks/gitleaks
-    rev: v8.30.1
+    rev: v8.30.1                # Contains critical security fix (CVE-2026-63728)
     hooks:
       - id: gitleaks
-  
-  # Private key detction
+        name: Detect Hardcoded Secrets (Gitleaks)
+        # Optional: add --redact if you want secrets masked in the output
+        # args: ["--redact"]
+
+  # Detect private keys (RSA, OpenSSH, PEM, PuTTY, etc.)
+  # Complements Gitleaks – catches raw private key material even if entropy
+  # rules miss it.
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v6.0.0
     hooks:
       - id: detect-private-key
-  
-  
+        name: Detect Private Keys
+
+  # ===========================================================================
+  # 2. CODEBASE HYGIENE & PRE-COMMIT SAFETY
+  # ===========================================================================
+      # Prevent committing unresolved merge conflict markers
+      - id: check-merge-conflict
+        name: Check for Unmerged Merge Conflicts
+
+      # Block accidental commits of large binary / data files
+      # (prevents repository bloat and accidental data dumps)
+      - id: check-added-large-files
+        name: Block Large Files
+        args: ['--maxkb=500']     # 500 KB is a reasonable production default
+                                  # Raise only if you have a documented reason
+
+      # Cross-platform filename safety (File.py vs file.py)
+      - id: check-case-conflict
+        name: Check Filename Case Conflicts
+
+      # Validate structural / config files so they cannot break CI or tools
+      - id: check-yaml
+        name: Validate YAML Files
+      - id: check-json
+        name: Validate JSON Files
+      - id: check-toml
+        name: Validate TOML Files
+      - id: check-ast
+        name: Validate Python Syntax (AST)
+
+      # Prevent direct commits to protected branches
+      - id: no-commit-to-branch
+        name: Block Direct Commits to Protected Branches
+        args: ['--branch', 'main', '--branch', 'master', '--branch', 'develop']
+
+      # Catch leftover debugger statements (security + cleanliness risk)
+      - id: debug-statements
+        name: Detect Debugger Statements (pdb / breakpoint / ipdb)
+
+      # Ensure scripts have proper shebangs and are executable when needed
+      - id: check-shebang-scripts-are-executable
+        name: Ensure Shebang Scripts Are Executable
+      - id: check-executables-have-shebangs
+        name: Ensure Executables Have Shebangs
+
+      # Normalize line endings and trailing whitespace (cross-platform hygiene)
+      - id: trailing-whitespace
+        name: Trim Trailing Whitespace
+      - id: end-of-file-fixer
+        name: Ensure Files End With a Newline
+      - id: mixed-line-ending
+        name: Normalize Line Endings
+        args: ['--fix=lf']     # Force LF (recommended for most projects)
+
+  # ===========================================================================
+  # 3. PYTHON CODE LINTING & FORMATTING
+  # ===========================================================================
+  # Ruff – Extremely fast linter + formatter (replaces Flake8, isort, Black, etc.)
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.12.8
+    rev: v0.16.2
     hooks:
       - id: ruff-check
-        args: [--fix]
-
+        name: Ruff Linter
+        args: [--fix]           # Auto-fix safe issues
       - id: ruff-format
-      
+        name: Ruff Formatter
+
+  # ===========================================================================
+  # 4. AST-BASED SECURITY STATIC ANALYSIS (SAST)
+  # ===========================================================================
+  # Bandit – Finds common Python security issues
+  # (use of exec/eval, weak crypto, unsafe YAML/pickle, hardcoded passwords,
+  #  shell injection patterns, etc.)
   - repo: https://github.com/PyCQA/bandit
-    rev: 1.8.6
+    rev: 1.9.4
     hooks:
       - id: bandit
-        args: ["-r", "."]
-  
-  - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v6.0.0
+        name: Bandit SAST – Python Security Scan
+        # Prefer a config file for consistency across the team
+        args: ["-c", "pyproject.toml"]
+        # Required so Bandit can read TOML config
+        additional_dependencies: ["bandit[toml]"]
+        # Optional: exclude test directories if they generate too much noise
+        # exclude: ^tests/
+
+  # ===========================================================================
+  # 5. COMMIT MESSAGE VALIDATION (NEW)
+  # ===========================================================================
+  - repo: https://github.com/compilerla/conventional-pre-commit
+    rev: v4.4.0
     hooks:
+      - id: conventional-pre-commit
+        name: Conventional Commits check
+        stages: [commit-msg]
+        # Optional: restrict allowed types (defaults are already good)
+        # args: [feat, fix, docs, style, refactor, perf, test, build, ci, chore, revert]
 
-      - id: trailing-whitespace
 
-      - id: end-of-file-fixer
+  # ===========================================================================
+  # 6. PRE-PUSH – Heavy validation (tests, types, security, build)
+  # Only runs when you do `git push`. Does NOT slow down every commit.
+  # ===========================================================================
+  - repo: local
+    hooks:
+      # --- Type checking -------------------------------------------------------
+      - id: mypy
+        name: mypy (static type checking)
+        entry: mypy
+        language: system          # or language: python + additional_dependencies
+        types: [python]
+        stages: [pre-push]
+        pass_filenames: false
+        # Adjust args to your project layout
+        args: ["--config-file=pyproject.toml", "src/", "app/"]
 
-      - id: check-yaml
+      # --- Unit + integration tests --------------------------------------------
+      - id: pytest
+        name: pytest (unit + integration)
+        entry: pytest
+        language: system
+        types: [python]
+        stages: [pre-push]
+        pass_filenames: false
+        args: ["-q", "--tb=short", "--cov=src", "--cov-fail-under=80"]  # adjust coverage threshold
 
-      - id: check-json
+      # --- Security tests / SAST (heavier than Bandit) -------------------------
+      - id: bandit-full
+        name: Bandit (full security scan)
+        entry: bandit
+        language: system
+        types: [python]
+        stages: [pre-push]
+        pass_filenames: false
+        args: ["-r", "src/", "-c", "pyproject.toml", "-ll"]  # -ll = medium+ severity
 
-      - id: check-added-large-files
 
-      - id: detect-private-key
-      
-  
+      # --- Semgrep -------------------------------------------------------------
+      - id: semgrep
+        name: Semgrep security rules
+        entry: semgrep
+        language: system
+        stages: [pre-push]
+        pass_filenames: false
+        args: ["--config=auto", "--error", "src/"]
+
+
+      # --- Docker / build validation -------------------------------------------
+      - id: docker-build
+        name: Docker build validation
+        entry: docker
+        language: system
+        stages: [pre-push]
+        pass_filenames: false
+        args: ["build", "-t", "ai-saas:pre-push-check", "."]
+        # Only fails if the Dockerfile or build context is broken
+
+      # --- dependency vulnerability scan -----------------------------
+      - id: pip-audit
+        name: pip-audit (dependency vulnerabilities)
+        entry: pip-audit
+        language: system
+        stages: [pre-push]
+        pass_filenames: false
+        args: ["--strict"]
+
+      # --- FastAPI / OpenAPI validation ------------------------------
+      - id: openapi-check
+        name: OpenAPI schema validation
+        entry: python
+        language: system
+        stages: [pre-push]
+        pass_filenames: false
+        args: ["-c", "from app.main import app; print(app.openapi())"]
