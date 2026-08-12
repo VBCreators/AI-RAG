@@ -1,0 +1,382 @@
+# .github/workflows/feature-ci.yml
+#
+# Production-grade CI for short-lived development branches:
+#   feature/**, bugfix/**, hotfix/**, refactor/**, chore/**, security/**
+#
+# IMPORTANT:
+# - This workflow NEVER deploys.
+# - This workflow NEVER pushes Docker images.
+# - No production/dev server credentials belong in this workflow.
+# - Keep deployment and registry-write permissions in the protected dev/main
+#   promotion workflows only.
+#
+# Recommended repository policy:
+#   feature/* -> PR -> dev -> PR -> main
+#
+# Security model:
+#   * pull_request is used instead of pull_request_target
+#   * default token permissions are read-only
+#   * CodeQL receives security-events: write only in its own job
+#   * third-party actions are version-pinned
+#   * dependency/secret/code/container scanning happens before merge
+#
+# NOTE:
+# For maximum supply-chain hardening, pin every third-party action below to a
+# full 40-character commit SHA. GitHub recommends full-length SHA pinning.
+# The release tags below are intentionally kept readable so Dependabot can
+# update them. See the setup notes accompanying this workflow.
+
+name: Feature / Bugfix CI
+
+on:
+  push:
+    branches:
+      - 'feature/**'
+      - 'bugfix/**'
+      - 'hotfix/**'
+      - 'refactor/**'
+      - 'chore/**'
+      - 'security/**'
+
+
+  pull_request:
+    branches:
+      - 'dev'
+    types:
+      - opened
+      - synchronize
+      - reopened
+      - ready_for_review
+
+  workflow_dispatch:
+
+# Least privilege by default.
+permissions:
+  contents: read
+
+# Prevent stale runs from consuming runner minutes and publishing stale results.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+# Never accidentally expose credentials through shell commands.
+defaults:
+  run:
+    shell: bash
+
+env:
+  PYTHON_VERSION: '3.14'
+  PIP_DISABLE_PIP_VERSION_CHECK: '1'
+  PYTHONDONTWRITEBYTECODE: '1'
+  PYTHONUNBUFFERED: '1'
+
+jobs:
+
+  # ---------------------------------------------------------------------------
+  # 1. Secret scanning
+  # ---------------------------------------------------------------------------
+  secret-scan:
+    name: Secret scan (Gitleaks)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6.0.2
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Scan repository for secrets
+        uses: gitleaks/gitleaks-action@v3.0.0
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          # Never place application/API credentials in this job.
+          GITLEAKS_ENABLE_UPLOAD_ARTIFACT: 'false'
+
+  # ---------------------------------------------------------------------------
+  # 2. Dependency review — PR only
+  # ---------------------------------------------------------------------------
+  dependency-review:
+    name: Dependency review
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    permissions:
+      contents: read
+
+    steps:
+      - name: Dependency review
+        uses: actions/dependency-review-action@v5.0.0
+        with:
+          fail-on-severity: high
+          comment-summary-in-pr: never
+
+  # ---------------------------------------------------------------------------
+  # 3. Python quality + pre-commit + tests
+  #
+  # The repository's own pre-commit configuration is the source of truth for
+  # formatting/lint/security hooks. This avoids maintaining duplicate CI rules.
+  #
+  # EXPECTED PROJECT LAYOUT:
+  #   pyproject.toml
+  #   [project.optional-dependencies]
+  #   dev = [...]
+  #
+  # Example dev dependencies should include:
+  #   pytest, pytest-cov, pre-commit, ruff, mypy, bandit, pip-audit
+  # ---------------------------------------------------------------------------
+  python-quality:
+    name: Python quality + tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v6.1.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: |
+            pyproject.toml
+            requirements*.txt
+
+      - name: Verify project metadata
+        run: |
+          test -f pyproject.toml || {
+            echo "::error::pyproject.toml is required for this production CI baseline."
+            exit 1
+          }
+
+      - name: Install project + development dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install ".[dev]"
+
+      - name: Run repository pre-commit hooks
+        run: |
+          pre-commit run --all-files --show-diff-on-failure
+
+      - name: Run pytest
+        run: |
+          mkdir -p test-results
+          pytest \
+            -q \
+            --maxfail=1 \
+            --junitxml=test-results/pytest.xml \
+            --cov=. \
+            --cov-report=term-missing \
+            --cov-report=xml:test-results/coverage.xml
+
+      - name: Run Bandit
+        run: |
+          bandit -r . \
+            -x ./.git,./.venv,./venv,./tests
+
+      - name: Run mypy
+        run: |
+          mypy .
+
+      - name: Run pip-audit
+        run: |
+          pip-audit
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: python-test-results-${{ github.sha }}
+          path: test-results/
+          if-no-files-found: warn
+          retention-days: 7
+
+  # ---------------------------------------------------------------------------
+  # 4. CodeQL
+  #
+  # Python is analyzed without a compilation/build step.
+  # CodeQL's result upload needs security-events: write, so the permission is
+  # scoped only to this job.
+  # ---------------------------------------------------------------------------
+  codeql:
+    name: CodeQL analysis
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    permissions:
+      contents: read
+      security-events: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v4
+        with:
+          languages: python
+          queries: security-extended
+
+      - name: Analyze with CodeQL
+        uses: github/codeql-action/analyze@v4
+        with:
+          category: /language:python
+
+  # ---------------------------------------------------------------------------
+  # 5. Dockerfile / image build
+  #
+  # Feature branches:
+  #   - build only
+  #   - no registry login
+  #   - no push
+  #   - no deployment
+  #
+  # The Docker image is loaded locally into the ephemeral GitHub runner so
+  # Trivy can scan the exact image that was built.
+  # ---------------------------------------------------------------------------
+  container-build-and-scan:
+    name: Container build + Trivy scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3.8.0
+
+      - name: Build application image
+        uses: docker/build-push-action@v7.2.0
+        with:
+          context: .
+          file: ./Dockerfile
+          tags: |
+            ai-saas-ci:${{ github.sha }}
+          push: false
+          load: true
+          pull: true
+          no-cache: true
+          provenance: false
+          sbom: false
+
+      - name: Scan application image
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: ai-saas-ci:${{ github.sha }}
+          format: table
+          exit-code: '1'
+          ignore-unfixed: true
+          severity: CRITICAL,HIGH
+          scanners: vuln,secret,misconfig
+
+      - name: Scan repository / Docker configuration
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          format: table
+          exit-code: '1'
+          ignore-unfixed: true
+          severity: CRITICAL,HIGH
+          scanners: vuln,secret,misconfig
+
+  # ---------------------------------------------------------------------------
+  # 6. Docker Compose validation
+  #
+  # This validates the files before they can ever reach the home lab.
+  # It intentionally does NOT start the production stack and does NOT contact
+  # Cloudflare, Keycloak, databases, Qdrant, Redis, etc.
+  # ---------------------------------------------------------------------------
+  compose-validation:
+    name: Docker Compose validation
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Validate production Compose file
+        run: |
+          test -f docker-compose.yml || {
+            echo "::error::docker-compose.yml was not found."
+            exit 1
+          }
+
+          docker compose -f docker-compose.yml config --quiet
+
+      - name: Validate development Compose file
+        if: ${{ hashFiles('docker-compose.dev.yml') != '' }}
+        run: |
+          docker compose -f docker-compose.dev.yml config --quiet
+
+  # ---------------------------------------------------------------------------
+  # 7. Final security gate
+  #
+  # Make THIS job a required status check in the "dev" branch rules.
+  # ---------------------------------------------------------------------------
+  ci-gate:
+    name: CI gate
+    if: always()
+    needs:
+      - secret-scan
+      - dependency-review
+      - python-quality
+      - codeql
+      - container-build-and-scan
+      - compose-validation
+
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    permissions:
+      contents: read
+
+    steps:
+      - name: Verify all required jobs succeeded
+        run: |
+          results=(
+            "${{ needs.secret-scan.result }}"
+            "${{ needs.dependency-review.result }}"
+            "${{ needs.python-quality.result }}"
+            "${{ needs.codeql.result }}"
+            "${{ needs.container-build-and-scan.result }}"
+            "${{ needs.compose-validation.result }}"
+          )
+
+          for result in "${results[@]}"; do
+            case "$result" in
+              success|skipped)
+                ;;
+              *)
+                echo "::error::A required CI/security job failed: ${result}"
+                exit 1
+                ;;
+            esac
+          done
+
+          echo "All required CI/security gates passed."
