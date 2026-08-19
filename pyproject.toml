@@ -4,7 +4,13 @@ version = "0.1.0"
 description = "AI-RAG System"
 readme = "README.md"
 requires-python = ">=3.14"
-dependencies = []
+dependencies = [
+    "bandit>=1.9.4",
+    "mypy>=2.3.1",
+    "pip-audit>=2.10.1",
+    "pytest>=9.1.1",
+    "semgrep>=1.173.0",
+]
 
 [project.scripts]
 ai-rag = "ai_rag:main"          # ← fixed
