@@ -1,0 +1,52 @@
+# ci/assets/codeql.yml
+#
+# Copy this file to: .github/workflows/codeql.yml
+#
+# GitHub-native SAST. Free for public repos; on private repos it requires
+# GitHub Advanced Security to be enabled for the repo (check current
+# GitHub pricing/plan - this has changed over time). Kept in its own
+# workflow because CodeQL benefits from its own schedule and the
+# "codeql" status check should be visible separately from "ci".
+#
+# *** Re-pin the action SHA below before first use - see the note at the
+# top of basic-ci.yml. ***
+
+name: codeql
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: "23 4 * * 1"   # weekly, Monday 04:23 UTC - catches new CodeQL query packs
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    name: CodeQL analyze (python)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write   # required to upload results
+      actions: read            # required for private repos
+
+    steps:
+      - uses: actions/checkout@8410ad0602e1e429cee44a835ae9f77f654a6694 # v5.0.0
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@181d5eefc20863364f96762470ba6f862bdef56b # v3.28.14
+        with:
+          languages: python
+          queries: security-extended   # broader than the default query pack
+
+      - name: Autobuild
+        uses: github/codeql-action/autobuild@181d5eefc20863364f96762470ba6f862bdef56b # v3.28.14
+
+      - name: Perform CodeQL analysis
+        uses: github/codeql-action/analyze@181d5eefc20863364f96762470ba6f862bdef56b # v3.28.14
+        with:
+          category: "/language:python"

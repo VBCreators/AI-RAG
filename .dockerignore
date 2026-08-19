@@ -1,0 +1,194 @@
+# ============================================
+# Git & Version Control
+# ============================================
+.git/
+.gitignore
+.gitattributes
+
+# ============================================
+# Secrets & Environment Files (CRITICAL)
+# ============================================
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.crt
+*.p12
+secrets/
+credentials/
+.streamlit/secrets.toml
+
+# ============================================
+# Python
+# ============================================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg
+*.egg-info/
+.eggs/
+dist/
+build/
+develop-eggs/
+downloads/
+eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+.pixi/
+__pypackages__/
+
+# Tooling caches
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.tox/
+.nox/
+.coverage
+.coverage.*
+htmlcov/
+.hypothesis/
+.cache/
+.ipynb_checkpoints/
+*.ipynb
+.pdm-python
+.pdm-build/
+.python-version
+
+# ============================================
+# Node.js / Frontend
+# ============================================
+node_modules/
+.pnpm-store/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.next/
+.nuxt/
+out/
+dist/
+build/
+.turbo/
+.vercel/
+*.tsbuildinfo
+.eslintcache
+.stylelintcache
+
+# ============================================
+# AI / ML Specific
+# ============================================
+# Model weights & checkpoints (usually large — download at runtime)
+*.pt
+*.pth
+*.safetensors
+*.onnx
+*.h5
+*.ckpt
+*.pkl
+models/
+checkpoints/
+weights/
+huggingface/
+.cache/
+.transformers_cache/
+.torch/
+wandb/
+mlruns/
+lightning_logs/
+tensorboard/
+runs/
+
+# Large data directories (prefer mounting or downloading at runtime)
+data/
+datasets/
+raw_data/
+processed_data/
+
+# Vector DBs / local stores
+chroma/
+faiss/
+pinecone/
+qdrant/
+weaviate/
+*.db
+*.sqlite
+*.sqlite3
+*.rdb
+
+# ============================================
+# Tests, Docs & CI
+# ============================================
+tests/
+test/
+__tests__/
+coverage/
+.nyc_output/
+*.md
+!README.md
+docs/
+.github/
+.gitlab-ci.yml
+Jenkinsfile
+
+# ============================================
+# IDE, Agents & OS junk
+# ============================================
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+*.log
+logs/
+tmp/
+temp/
+tempCodeRunnerFile.py
+
+# AI agent folders (from your .gitignore)
+.codex/
+.cursor/
+.gemini/
+.zed/
+.mcp.json
+opencode.json
+config/mcporter.json
+.agent/
+.swcode/
+.vscode-agent/
+.runs/
+.agent_runs/
+.cursor_runs/
+.gemini_runs/
+.mcp_runs/
+.opencode_runs/
+.swcode_runs/
+.vscode_agent_runs/
+.abstra/
+
+# ============================================
+# Docker itself
+# ============================================
+Dockerfile*
+docker-compose*.yml
+.dockerignore
