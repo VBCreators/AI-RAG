@@ -6,6 +6,10 @@
 # - Conditional Unit & OpenAPI tests (runs only if tests exist)
 # - Conditional Integration tests (runs only if tests exist, no DB containers yet)
 # - Final quality gate aggregation
+#
+# All `uses:` references are pinned to immutable 40-character commit SHAs
+# with the human-readable version as a trailing comment so Dependabot can
+# still propose upgrades. Format:  uses: <repo>@<40-char-sha> # <version>
 
 name: CI
 
@@ -57,10 +61,10 @@ jobs:
     timeout-minutes: 15
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7.0.1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up Python
-        uses: actions/setup-python@v7.0.0
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
@@ -69,7 +73,7 @@ jobs:
             requirements*.txt
 
       - name: Run Ruff Lint & Format Check
-        uses: astral-sh/ruff-action@v4.1.0
+        uses: astral-sh/ruff-action@278981a28ce3188b1e39527901f38254bf3aac89 # v4.1.0
         with:
           args: check .
 
@@ -79,12 +83,12 @@ jobs:
           ruff format --check .
 
       - name: Run Pre-Commit Hooks
-        uses: pre-commit/action@v3.0.1
+        uses: pre-commit/action@2c7b3805fd2a0fd8c1884dcaebf91fc102a13ecd # v3.0.1
         with:
           extra_args: --all-files --show-diff-on-failure
 
       - name: Validate Workflow YAML Files (actionlint)
-        uses: rhysd/actionlint@v1.7.12
+        uses: rhysd/actionlint@914e7df21a07ef503a81201c76d2b11c789d3fca # v1.7.12
 
       - name: Validate Docker Compose Configurations
         run: |
@@ -104,10 +108,10 @@ jobs:
     timeout-minutes: 15
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7.0.1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up Python
-        uses: actions/setup-python@v7.0.0
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
@@ -137,10 +141,10 @@ jobs:
     timeout-minutes: 20
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7.0.1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up Python
-        uses: actions/setup-python@v7.0.0
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
@@ -185,7 +189,7 @@ jobs:
 
       - name: Upload Unit Test Results
         if: always()
-        uses: actions/upload-artifact@v7.0.1
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: unit-test-results-${{ github.sha }}
           path: |
@@ -204,10 +208,10 @@ jobs:
     needs: [format-and-lint]
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7.0.1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up Python
-        uses: actions/setup-python@v7.0.0
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
@@ -240,7 +244,7 @@ jobs:
 
       - name: Upload Integration Test Results
         if: always()
-        uses: actions/upload-artifact@v7.0.1
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: integration-test-results-${{ github.sha }}
           path: |
@@ -264,12 +268,17 @@ jobs:
       - integration-and-db-tests
     steps:
       - name: Verify All Required CI Checks Passed
+        env:
+          FORMAT_AND_LINT: ${{ needs.format-and-lint.result }}
+          TYPE_CHECK: ${{ needs.type-check.result }}
+          UNIT_AND_API: ${{ needs.unit-and-api-tests.result }}
+          INTEGRATION: ${{ needs.integration-and-db-tests.result }}
         run: |
           results=(
-            "${{ needs.format-and-lint.result }}"
-            "${{ needs.type-check.result }}"
-            "${{ needs.unit-and-api-tests.result }}"
-            "${{ needs.integration-and-db-tests.result }}"
+            "${FORMAT_AND_LINT}"
+            "${TYPE_CHECK}"
+            "${UNIT_AND_API}"
+            "${INTEGRATION}"
           )
 
           for result in "${results[@]}"; do

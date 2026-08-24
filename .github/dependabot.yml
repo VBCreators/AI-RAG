@@ -22,6 +22,8 @@ updates:
     labels:
       - "dependencies"
       - "github-actions"
+    cooldown:
+      default-days: 7
 
   # =========================================================================
   # 2. Python Dependencies (pip / pyproject.toml)
@@ -38,6 +40,8 @@ updates:
     labels:
       - "dependencies"
       - "python"
+    cooldown:
+      default-days: 7
 
   # =========================================================================
   # 3. Docker Base Images
@@ -54,3 +58,5 @@ updates:
     labels:
       - "dependencies"
       - "docker"
+    cooldown:
+      default-days: 7
