@@ -1,0 +1,309 @@
+# ci/assets/basic-ci.yml
+#
+# Copy this file to: .github/workflows/ci.yml
+#
+# Production-grade CI for a Python/FastAPI SaaS app that ships as a Docker
+# image to GHCR and (optionally) Docker Hub, picked up for deployment by
+# Watchtower. Trim the service containers / registry-push job you don't
+# need. See ci/references/github-actions-security.md for the rationale
+# behind every choice here.
+#
+# REQUIRED REPO SECRETS (Settings -> Secrets and variables -> Actions):
+#   DOCKERHUB_USERNAME   (only if pushing to Docker Hub)
+#   DOCKERHUB_TOKEN      (Docker Hub *access token*, not password; only if pushing to Docker Hub)
+# GHCR push needs no secret - it uses the automatic GITHUB_TOKEN.
+#
+# *** IMPORTANT - RE-PIN BEFORE FIRST USE ***
+# Every third-party action below is pinned to a full commit SHA with the
+# version as a trailing comment, per ci/references/github-actions-security.md
+# rule #2. The SHAs shipped in this template are a best-effort snapshot and
+# MUST be re-verified against each action's real repo before you rely on
+# this workflow - a wrong SHA simply fails the run (safe), but don't assume
+# it's current. Fastest way to (re)pin everything correctly:
+#   npx pin-github-action .github/workflows/ci.yml
+# or manually resolve each `@vX.Y.Z` tag to its commit SHA:
+#   gh api repos/<owner>/<repo>/git/refs/tags/vX.Y.Z
+# Then let Dependabot's `github-actions` ecosystem entry (see
+# ci/assets/dependabot.yml) keep the pinned SHAs current afterwards.
+
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch: {}
+
+# Least-privilege default; individual jobs escalate only what they need.
+permissions:
+  contents: read
+
+env:
+  PYTHON_VERSION: "3.12"
+  IMAGE_NAME: ${{ github.repository }}   # e.g. your-org/your-saas
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ---------------------------------------------------------------------
+  # 1. Pre-commit — same hooks contributors run locally, as a CI backstop
+  # ---------------------------------------------------------------------
+  pre-commit:
+    name: Pre-commit hooks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@8410ad0602e1e429cee44a835ae9f77f654a6694 # v5.0.0
+      - uses: actions/setup-python@0b93645e9fea7318ecaed2b359559ac225c90a2b # v6.0.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - uses: pre-commit/action@2c7b3805fd2a0fd8c1884dcaebf91fc102a13ecd # v3.0.1
+
+  # ---------------------------------------------------------------------
+  # 2. Lint + type-check (fast fail, independent of pre-commit for clarity
+  #    in the PR status check list)
+  # ---------------------------------------------------------------------
+  lint:
+    name: Lint & type-check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@8410ad0602e1e429cee44a835ae9f77f654a6694 # v5.0.0
+      - uses: actions/setup-python@0b93645e9fea7318ecaed2b359559ac225c90a2b # v6.0.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: "pip"
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt -r requirements-dev.txt
+      - name: Ruff lint
+        run: ruff check .
+      - name: Ruff format check
+        run: ruff format --check .
+      - name: mypy
+        run: mypy .
+
+  # ---------------------------------------------------------------------
+  # 3. Security scans that don't need a built image
+  # ---------------------------------------------------------------------
+  security:
+    name: SAST, secrets, dependency scan
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write   # to upload SARIF results
+    steps:
+      - uses: actions/checkout@8410ad0602e1e429cee44a835ae9f77f654a6694 # v5.0.0
+        with:
+          fetch-depth: 0   # gitleaks needs history for full scan
+
+      - uses: actions/setup-python@0b93645e9fea7318ecaed2b359559ac225c90a2b # v6.0.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Bandit (Python SAST)
+        run: |
+          pip install bandit
+          bandit -r . -x ./.venv,./tests -ll
+
+      - name: pip-audit (dependency vulnerabilities)
+        run: |
+          pip install pip-audit
+          pip-audit -r requirements.txt
+
+      - name: Gitleaks (secret scanning)
+        uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c # v2.3.9
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ---------------------------------------------------------------------
+  # 4. Unit + integration tests with real service containers
+  #    (trim the services you don't use)
+  # ---------------------------------------------------------------------
+  test:
+    name: Test (pytest)
+    runs-on: ubuntu-latest
+    needs: [lint]
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd="pg_isready -U test"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=10
+      mongo:
+        image: mongo:8
+        ports: ["27017:27017"]
+        options: >-
+          --health-cmd="mongosh --quiet --eval 'db.runCommand(\"ping\")'"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=10
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd="redis-cli ping"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=10
+      qdrant:
+        image: qdrant/qdrant:latest
+        ports: ["6333:6333"]
+    env:
+      DATABASE_URL: postgresql+asyncpg://test:test@localhost:5432/test
+      MONGO_URL: mongodb://localhost:27017
+      REDIS_URL: redis://localhost:6379/0
+      QDRANT_URL: http://localhost:6333
+    steps:
+      - uses: actions/checkout@8410ad0602e1e429cee44a835ae9f77f654a6694 # v5.0.0
+      - uses: actions/setup-python@0b93645e9fea7318ecaed2b359559ac225c90a2b # v6.0.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: "pip"
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt -r requirements-dev.txt
+      - name: Run tests with coverage
+        run: |
+          pytest --cov=. --cov-report=xml --cov-report=term-missing -v
+      - name: Upload coverage artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa9 # v4.6.2
+        with:
+          name: coverage-report
+          path: coverage.xml
+          retention-days: 14
+
+  # ---------------------------------------------------------------------
+  # 5. Build the image, scan it, sign it, push it (main branch only)
+  # ---------------------------------------------------------------------
+  build-and-push:
+    name: Build, scan, sign, push image
+    runs-on: ubuntu-latest
+    needs: [pre-commit, lint, security, test]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    permissions:
+      contents: read
+      packages: write        # push to GHCR
+      id-token: write        # OIDC for cosign keyless signing
+      security-events: write # upload Trivy SARIF
+    steps:
+      - uses: actions/checkout@8410ad0602e1e429cee44a835ae9f77f654a6694 # v5.0.0
+
+      - name: Set image tags
+        id: meta
+        uses: docker/metadata-action@8e5442c4ef9f78752691e2d8f8d19755c6f78e81 # v5.6.1
+        with:
+          images: |
+            ghcr.io/${{ env.IMAGE_NAME }}
+            docker.io/${{ env.IMAGE_NAME }}
+          tags: |
+            type=sha,prefix=sha-,format=short
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=semver,pattern={{version}}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@c47758b77c9736f4b2ef4073d4d51994fabfe349 # v3.11.1
+
+      - name: Log in to GHCR
+        uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Log in to Docker Hub
+        if: ${{ vars.PUSH_TO_DOCKERHUB == 'true' }}
+        uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3.6.0
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and push
+        id: build
+        uses: docker/build-push-action@ca877d9245402d1537745e0e356eab47c3520b3d # v6.14.0
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          provenance: true
+          sbom: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Scan built image with Trivy
+        uses: aquasecurity/trivy-action@6c175e9c40522e935fd4b8722ba4d34d2f0899d1 # v0.29.0
+        with:
+          image-ref: ghcr.io/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}
+          format: sarif
+          output: trivy-results.sarif
+          severity: CRITICAL,HIGH
+          exit-code: "1"
+
+      - name: Upload Trivy results to GitHub Security tab
+        if: always()
+        uses: github/codeql-action/upload-sarif@181d5eefc20863364f96762470ba6f862bdef56b # v3.28.14
+        with:
+          sarif_file: trivy-results.sarif
+
+      - name: Generate SBOM (SPDX)
+        uses: anchore/sbom-action@fce872a19ce1af03a2c07caf3e79ded1541c7d21 # v0.17.9
+        with:
+          image: ghcr.io/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}
+          format: spdx-json
+          output-file: sbom.spdx.json
+
+      - name: Upload SBOM artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa9 # v4.6.2
+        with:
+          name: sbom
+          path: sbom.spdx.json
+          retention-days: 90
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@d7543c93d881b35a8faa02e8e3605f69b7a1b241 # v3.7.0
+
+      - name: Sign image (keyless, OIDC)
+        run: |
+          cosign sign --yes ghcr.io/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}
+
+  # ---------------------------------------------------------------------
+  # 6. Hadolint — Dockerfile-specific lint (kept separate for clear status)
+  # ---------------------------------------------------------------------
+  hadolint:
+    name: Dockerfile lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@8410ad0602e1e429cee44a835ae9f77f654a6694 # v5.0.0
+      - uses: hadolint/hadolint-action@54c9adbab1582c2ef04b2016b760714a4bfde3cf # v3.1.0
+        with:
+          dockerfile: Dockerfile
+          failure-threshold: warning
+
+# ---------------------------------------------------------------------
+# Notes:
+# - Watchtower needs NO trigger step here under default polling mode -
+#   pushing a new image tag to a registry it's already watching is the
+#   trigger. See ci/references/github-actions-security.md section 9 for
+#   the optional push-based alternative.
+# - Set the repo/org *variable* PUSH_TO_DOCKERHUB=true (Settings ->
+#   Secrets and variables -> Actions -> Variables) only if you actually
+#   want Docker Hub pushes; otherwise that login step is skipped and you
+#   can delete "docker.io/..." from the metadata-action `images:` list.
+# ---------------------------------------------------------------------
