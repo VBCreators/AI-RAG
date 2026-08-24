@@ -191,4 +191,71 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
 
-      - name: Run zizmor Workflow Security
+      - name: Run zizmor Workflow Security Audit
+        run: |
+          pip install --upgrade pip zizmor
+          zizmor . || echo "zizmor scan completed with warnings."
+
+  # =========================================================================
+  # 5. Filesystem & Misconfiguration Scan (Trivy FS)
+  # =========================================================================
+  filesystem-misconfig-scan:
+    name: Filesystem & Misconfiguration Scan (Trivy)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Run Trivy Filesystem Scan
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          format: sarif
+          output: trivy-fs-results.sarif
+          severity: CRITICAL,HIGH
+          exit-code: '0'
+
+      - name: Upload Trivy FS SARIF Report
+        if: always()
+        uses: github/codeql-action/upload-sarif@v4.37.8
+        with:
+          sarif_file: trivy-fs-results.sarif
+          category: trivy-filesystem
+
+  # =========================================================================
+  # 6. Supply Chain Security Health Assessment (OpenSSF Scorecard)
+  # =========================================================================
+  scorecard-analysis:
+    name: Supply Chain Scorecard (OpenSSF)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      security-events: write
+      id-token: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Run OpenSSF Scorecard Analysis
+        uses: ossf/scorecard-action@v2.4.3
+        with:
+          results_file: scorecard-results.sarif
+          results_format: sarif
+          publish_results: true
+
+      - name: Upload Scorecard SARIF Report
+        if: always()
+        uses: github/codeql-action/upload-sarif@v4.37.8
+        with:
+          sarif_file: scorecard-results.sarif
+          category: openssf-scorecard
