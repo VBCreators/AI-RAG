@@ -1,0 +1,47 @@
+# ci/assets/dependabot.yml
+#
+# Copy this file to: .github/dependabot.yml
+#
+# Keeps Python deps, Docker base images, and pinned GitHub Actions SHAs
+# all patched automatically via PRs you review and merge. Free on all
+# GitHub plans/repo visibility.
+
+version: 2
+
+updates:
+  # --- Python dependencies ------------------------------------------------
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 10
+    labels: ["dependencies", "python"]
+    groups:
+      python-minor-patch:
+        update-types: ["minor", "patch"]
+
+  # --- Dockerfile base images ----------------------------------------------
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    labels: ["dependencies", "docker"]
+
+  # --- GitHub Actions (keeps your pinned commit SHAs current & safe) -------
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    labels: ["dependencies", "github-actions"]
+
+  # --- Docker Compose services, if used for local/dev stacks --------------
+  # Uncomment and adjust the directory if docker-compose files live
+  # elsewhere (Dependabot treats compose files under the "docker"
+  # ecosystem the same as Dockerfiles as of current GitHub support).
+  # - package-ecosystem: "docker"
+  #   directory: "/deploy"
+  #   schedule:
+  #     interval: "weekly"

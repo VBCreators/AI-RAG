@@ -1,0 +1,194 @@
+# .github/workflows/security.yml
+#
+# Production-grade Security & SAST workflow implementing:
+# - Secret leak detection (Gitleaks + TruffleHog)
+# - Python Static Application Security Testing (Bandit AST + Semgrep)
+# - Dependency vulnerability scanning (Google OSV-Scanner + pip-audit)
+# - Dockerfile security & best-practices linting (Hadolint)
+# - GitHub Actions workflow security auditing (zizmor)
+# - Filesystem vulnerability & misconfiguration scanning (Trivy FS)
+# - Supply-chain security health assessment (OpenSSF Scorecard)
+
+name: Security
+
+on:
+  push:
+    branches:
+      - main
+      - dev
+      - 'feature/**'
+      - 'bugfix/**'
+      - 'hotfix/**'
+      - 'refactor/**'
+      - 'chore/**'
+  pull_request:
+    branches:
+      - main
+      - dev
+    types:
+      - opened
+      - synchronize
+      - reopened
+      - ready_for_review
+  schedule:
+    - cron: '0 3 * * 1' # Weekly Monday 03:00 UTC
+  workflow_dispatch:
+
+# Least-privilege top-level permission default.
+permissions:
+  contents: read
+
+concurrency:
+  group: security-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  PYTHON_VERSION: '3.14'
+
+jobs:
+  # =========================================================================
+  # 1. Secret & Credential Leak Detection
+  # =========================================================================
+  secret-detection:
+    name: Secret Detection (Gitleaks + TruffleHog)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Scan Repository for Secrets (Gitleaks)
+        uses: gitleaks/gitleaks-action@v3.0.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_ENABLE_UPLOAD_ARTIFACT: 'false'
+
+      - name: Scan Repository for Secrets (TruffleHog)
+        uses: trufflesecurity/trufflehog@v3.97.0
+        with:
+          path: ./
+          base: ${{ github.event.repository.default_branch }}
+          head: HEAD
+          extra_args: --debug --only-verified
+
+  # =========================================================================
+  # 2. Python SAST (Bandit + Semgrep)
+  # =========================================================================
+  python-sast:
+    name: Python SAST (Bandit + Semgrep)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v7.0.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Run Bandit AST Security Scan
+        run: |
+          pip install --upgrade pip bandit[toml]
+          if [ -f pyproject.toml ]; then
+            bandit -r . -c pyproject.toml -x ./.git,./.venv,./venv,./tests -ll || \
+            bandit -r . -x ./.git,./.venv,./venv,./tests -ll
+          else
+            bandit -r . -x ./.git,./.venv,./venv,./tests -ll
+          fi
+
+      - name: Run Semgrep SAST
+        run: |
+          docker run --rm \
+            -v "${{ github.workspace }}:/src" \
+            -w /src \
+            semgrep/semgrep:latest \
+            semgrep scan \
+              --config=p/security-audit \
+              --config=p/secrets \
+              --config=p/owasp-top-ten \
+              --config=p/python \
+              --error
+
+  # =========================================================================
+  # 3. Dependency Vulnerability Audits (OSV-Scanner + pip-audit)
+  # =========================================================================
+  dependency-vulnerability-scan:
+    name: Dependency CVE Scan (OSV-Scanner + pip-audit)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v7.0.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Run Google OSV-Scanner
+        uses: google/osv-scanner-action@v2.5.1
+        with:
+          scan-args: |-
+            --skip-git
+            ./
+
+      - name: Run pip-audit
+        run: |
+          pip install --upgrade pip pip-audit
+          if [ -f requirements.txt ]; then
+            pip-audit -r requirements.txt
+          elif [ -f pyproject.toml ]; then
+            pip-audit
+          else
+            echo "No requirements file or pyproject.toml found for pip-audit."
+          fi
+
+  # =========================================================================
+  # 4. Dockerfile & Workflow Security (Hadolint + zizmor)
+  # =========================================================================
+  dockerfile-and-workflow-audit:
+    name: Dockerfile & Workflow Security (Hadolint + zizmor)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Lint Dockerfile (Hadolint)
+        if: ${{ hashFiles('Dockerfile', 'Dockerfile.*') != '' }}
+        uses: hadolint/hadolint-action@v3.4.0
+        with:
+          dockerfile: Dockerfile
+          failure-threshold: warning
+
+      - name: Set up Python for zizmor
+        uses: actions/setup-python@v7.0.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Run zizmor Workflow Security
