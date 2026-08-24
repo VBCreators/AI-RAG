@@ -70,6 +70,7 @@ pip-delete-this-directory.txt
 .env.*
 !.env.example
 .envrc
+.env.production
 .pypirc
 .streamlit/secrets.toml
 

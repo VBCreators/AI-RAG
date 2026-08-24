@@ -8,7 +8,8 @@ services:
     image: ai-saas-app:latest
     restart: unless-stopped
     env_file:
-      - .env.production # never commit this file
+      - path: .env.production # never commit this file
+        required: false
     environment:
       - PYTHONUNBUFFERED=1
       - APP_ENV=production
@@ -16,9 +17,9 @@ services:
     # Prefer removing this and adding a proxy later.
     ports:
       - "8000:8000"
-    # volumes:
-       # Bind-mount only if needed during development. Prefer baking code into the image.
-       # - ./app:/app:ro
+      # volumes:
+      # Bind-mount only if needed during development. Prefer baking code into the image.
+      # - ./app:/app:ro
     networks:
       - app-net
     healthcheck:
