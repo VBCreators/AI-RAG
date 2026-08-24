@@ -1,0 +1,57 @@
+name: ai-saas
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: ai-saas-app:latest
+    restart: unless-stopped
+    env_file:
+      - path: .env.production # never commit this file
+        required: false
+    environment:
+      - PYTHONUNBUFFERED=1
+      - APP_ENV=production
+    # Only expose the app port if you are not putting a reverse proxy in front yet.
+    # Prefer removing this and adding a proxy later.
+    ports:
+      - "8000:8000"
+      # volumes:
+      # Bind-mount only if needed during development. Prefer baking code into the image.
+      # - ./app:/app:ro
+    networks:
+      - app-net
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8000/health" ]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    # ---- Security hardening ----
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp:size=64M,mode=1777
+      - /var/tmp:size=16M,mode=1777
+    user: "1000:1000" # non-root user that must exist in your image
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 2G
+        reservations:
+          cpus: "0.25"
+          memory: 256M
+
+networks:
+  app-net:
+    driver: bridge

@@ -1,0 +1,102 @@
+# ci/assets/pre-commit-config.yaml
+#
+# Copy this file to the repo root as: .pre-commit-config.yaml
+# Then run once: pre-commit install && pre-commit install --hook-type commit-msg
+#
+# See ci/references/pre-commit-best-practices.md for the rationale behind
+# every hook here. CI re-runs this exact config via `pre-commit/action`
+# in .github/workflows/ci.yml as a backstop.
+
+default_language_version:
+  python: python3.12
+
+repos:
+  # --- General file hygiene -------------------------------------------
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+        args: ["--allow-multiple-documents"]
+      - id: check-json
+      - id: check-toml
+      - id: check-added-large-files
+        args: ["--maxkb=1000"]
+      - id: check-merge-conflict
+      - id: check-case-conflict
+      - id: detect-private-key
+      - id: mixed-line-ending
+      - id: check-executables-have-shebangs
+      - id: check-symlinks
+      - id: destroyed-symlinks
+
+  # --- Python lint + format (Ruff replaces flake8 + isort + black) ----
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.9.6
+    hooks:
+      - id: ruff
+        args: ["--fix", "--exit-non-zero-on-fix"]
+      - id: ruff-format
+
+  # --- Python static typing --------------------------------------------
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.15.0
+    hooks:
+      - id: mypy
+        additional_dependencies:
+          - pydantic
+          - types-redis
+          - types-requests
+
+  # --- Python SAST -------------------------------------------------------
+  - repo: https://github.com/PyCQA/bandit
+    rev: 1.8.2
+    hooks:
+      - id: bandit
+        args: ["-c", "pyproject.toml", "-ll"]
+        additional_dependencies: ["bandit[toml]"]
+
+  # --- Dependency vulnerability check ------------------------------------
+  - repo: https://github.com/pypa/pip-audit
+    rev: v2.7.3
+    hooks:
+      - id: pip-audit
+        args: ["-r", "requirements.txt"]
+
+  # --- Secret scanning -----------------------------------------------------
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.23.3
+    hooks:
+      - id: gitleaks
+
+  # --- Dockerfile lint ----------------------------------------------------
+  - repo: https://github.com/hadolint/hadolint
+    rev: v2.13.1-beta
+    hooks:
+      - id: hadolint-docker
+        files: Dockerfile.*
+
+  # --- Shell script lint ----------------------------------------------------
+  - repo: https://github.com/koalaman/shellcheck-precommit
+    rev: v0.10.0
+    hooks:
+      - id: shellcheck
+
+  # --- GitHub Actions workflow schema validation ----------------------------
+  - repo: https://github.com/python-jsonschema/check-jsonschema
+    rev: 0.31.1
+    hooks:
+      - id: check-github-workflows
+      - id: check-dependabot
+
+  # --- Conventional commit messages (optional but recommended) -------------
+  - repo: https://github.com/commitizen-tools/commitizen
+    rev: v4.1.1
+    hooks:
+      - id: commitizen
+        stages: [commit-msg]
+
+ci:
+  autofix_commit_msg: "chore(pre-commit): auto fixes from pre-commit hooks"
+  autoupdate_schedule: weekly
