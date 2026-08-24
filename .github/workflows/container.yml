@@ -152,7 +152,7 @@ jobs:
           accept-key: CIS-DI-0001,CIS-DI-0005,CIS-DI-0006
 
       - name: Generate Software Bill of Materials (SBOM via Syft)
-        uses: anchore/sbom-action@v0.9.0
+        uses: anchore/sbom-action@v0.24.0
         with:
           image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${{ github.sha }}
           format: spdx-json
