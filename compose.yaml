@@ -16,9 +16,9 @@ services:
     # Prefer removing this and adding a proxy later.
     ports:
       - "8000:8000"
-    volumes:
-      # Bind-mount only if needed during development. Prefer baking code into the image.
-      # - ./app:/app:ro
+    # volumes:
+       # Bind-mount only if needed during development. Prefer baking code into the image.
+       # - ./app:/app:ro
     networks:
       - app-net
     healthcheck:

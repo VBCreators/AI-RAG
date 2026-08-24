@@ -57,10 +57,10 @@ jobs:
     timeout-minutes: 15
     steps:
       - name: Checkout repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        uses: actions/checkout@v7.0.1
 
       - name: Set up Python
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        uses: actions/setup-python@v7.0.0
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
@@ -69,7 +69,7 @@ jobs:
             requirements*.txt
 
       - name: Run Ruff Lint & Format Check
-        uses: astral-sh/ruff-action@278981a28ce3188b1e39527901f38254bf3aac89 # v4.1.0
+        uses: astral-sh/ruff-action@v4.1.0
         with:
           args: check .
 
@@ -79,12 +79,12 @@ jobs:
           ruff format --check .
 
       - name: Run Pre-Commit Hooks
-        uses: pre-commit/action@2c7b3805fd2a0fd8c1884dcaebf91fc102a13ecd # v3.0.1
+        uses: pre-commit/action@v3.0.1
         with:
           extra_args: --all-files --show-diff-on-failure
 
       - name: Validate Workflow YAML Files (actionlint)
-        uses: rhysd/actionlint@914e7df21a07ef503a81201c76d2b11c789d3fca # v1.7.12
+        uses: rhysd/actionlint@v1.7.12
 
       - name: Validate Docker Compose Configurations
         run: |
@@ -104,10 +104,10 @@ jobs:
     timeout-minutes: 15
     steps:
       - name: Checkout repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        uses: actions/checkout@v7.0.1
 
       - name: Set up Python
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        uses: actions/setup-python@v7.0.0
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
@@ -137,10 +137,10 @@ jobs:
     timeout-minutes: 20
     steps:
       - name: Checkout repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        uses: actions/checkout@v7.0.1
 
       - name: Set up Python
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        uses: actions/setup-python@v7.0.0
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
@@ -172,7 +172,6 @@ jobs:
       - name: Run Unit Tests (if they exist)
         run: |
           mkdir -p test-results coverage-results
-          # Check if the directory exists AND contains at least one .py file (excluding __init__.py)
           if [ -d "tests/unit" ] && [ -n "$(find tests/unit -name '*.py' -not -name '__init__.py' -print -quit)" ]; then
             pytest tests/unit \
               --junitxml=test-results/unit-junit.xml \
@@ -186,7 +185,7 @@ jobs:
 
       - name: Upload Unit Test Results
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@v7.0.1
         with:
           name: unit-test-results-${{ github.sha }}
           path: |
@@ -203,13 +202,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 25
     needs: [format-and-lint]
-    # Services block completely removed for early-stage dev
     steps:
       - name: Checkout repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        uses: actions/checkout@v7.0.1
 
       - name: Set up Python
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        uses: actions/setup-python@v7.0.0
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
@@ -229,7 +227,6 @@ jobs:
       - name: Run Integration Tests (if they exist)
         run: |
           mkdir -p test-results coverage-results
-          # Check if the directory exists AND contains at least one .py file (excluding __init__.py)
           if [ -d "tests/integration" ] && [ -n "$(find tests/integration -name '*.py' -not -name '__init__.py' -print -quit)" ]; then
             pytest tests/integration \
               --junitxml=test-results/integration-junit.xml \
@@ -243,7 +240,7 @@ jobs:
 
       - name: Upload Integration Test Results
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@v7.0.1
         with:
           name: integration-test-results-${{ github.sha }}
           path: |

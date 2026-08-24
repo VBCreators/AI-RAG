@@ -30,7 +30,7 @@ Guiding rules for anything produced with this skill (see
 2. Everything free/open-source (GitHub-hosted runners, GHCR, Trivy,
    Gitleaks, OSV-Scanner/pip-audit, CodeQL, Bandit, cosign, syft — all free).
 3. Least-privilege `permissions:` on every workflow/job.
-4. Every third-party Action pinned to a full commit SHA (tag as comment).
+4. Every third-party Action must be on the latest version.
 5. No long-lived credentials in workflows — use `GITHUB_TOKEN`/OIDC first,
    repo secrets only when a third party (Docker Hub) truly requires it.
 6. Fail the build on: lint errors, type errors, test failures, any
