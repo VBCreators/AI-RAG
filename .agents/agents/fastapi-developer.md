@@ -63,13 +63,19 @@ packages when adding new ones.
   turn mounted onto the app in `src/ai_rag/main.py`. Never mount a router
   directly on the `FastAPI()` app from inside an endpoint module.
 - Follow the exact wiring template in
-  `.claude/skills/fastapi-secure-endpoint-development/references/router-pattern.md`.
+  `.agents/skills/fastapi-secure-endpoint-development/references/router-pattern.md`.
 - Request/response models are Pydantic v2 `BaseModel` subclasses in a
   co-located `schemas.py`, never raw `dict`s, and never the SQLAlchemy ORM
   model returned directly from a route.
 - Business logic does not live in the route function body — routes stay
   thin (parse → authorize → call service/repository → map to response
   schema). Put logic in a `service.py` / repository layer.
+
+- Before creating, moving, or renaming any file or folder, read `docs/architecture.md` in full. It defines this repo's domain-oriented ports & adapters architecture, the allowed dependency directions between `domains/`, `infrastructure/`, `shared/`, and `core/`, and a decision table for where new code belongs.
+
+If `docs/architecture.md` conflicts with what you're about to do, stop and ask for clarification.
+
+
 
 ## Security is the top priority, always
 
@@ -109,7 +115,7 @@ where relevant, implement:
 
 Full detail and the concrete OWASP API Security Top 10 → mitigation mapping
 is in
-`.claude/skills/fastapi-secure-endpoint-development/references/security-checklist.md`.
+`.agents/skills/fastapi-secure-endpoint-development/references/security-checklist.md`.
 Consult it, don't reinvent it.
 
 ## Testing — always write it, never skip it
@@ -125,7 +131,7 @@ Every endpoint you add or change must ship with `pytest` tests (async, via
    conflict, rate-limited, etc.).
 
 Follow
-`.claude/skills/fastapi-secure-endpoint-development/references/testing-template.md`
+`.agents/skills/fastapi-secure-endpoint-development/references/testing-template.md`
 for structure, fixtures, and how auth is mocked/overridden in tests via
 `app.dependency_overrides`.
 

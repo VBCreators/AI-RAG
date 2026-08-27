@@ -129,39 +129,21 @@ Production configuration MUST assume:
 
 ---
 
-## Project Structure
+## Project structure
 
-The Root Agent SHOULD expect a repository structure broadly similar to:
+Before creating, moving, or renaming any file or folder, read `docs/architecture.md`
+in full. It defines this repo's domain-oriented ports & adapters architecture,
+the allowed dependency directions between `domains/`, `infrastructure/`,
+`shared/`, and `core/`, and a decision table for where new code belongs.
 
-- /app                  — FastAPI application (routers, dependencies, middleware)
+- Do not place business logic outside `domains/<domain>/services/`.
+- Do not import `infrastructure/*` directly from inside `domains/*` — depend
+  on a port and let it be wired in `main.py` / `api/dependencies.py`.
+- New tests must mirror the corresponding path under `src/ai_rag/` inside `tests/`.
+- If a change doesn't fit the existing structure, propose a new folder that
+  follows the conventions in `docs/architecture.md` and update that file.
 
-  - /app/api             — versioned API routes (e.g. /api/v1)
-  - /app/core            — config, security, startup/shutdown, logging
-  - /app/models           — SQLAlchemy models (Postgres)
-  - /app/schemas          — Pydantic request/response schemas
-  - /app/services          — business logic, orchestration layer
-  - /app/db               — DB session/clients (Postgres, MongoDB, Qdrant, Redis)
-  - /app/agents            — LangGraph / DeepAgents graphs, agent + sub-agent defs
-  - /app/tools              — LangChain tools used by agents
-
-- /tests                 — pytest suite, mirrors /app structure (unit/integration/e2e)
-
-- /.github/workflows      — CI (tests, lint, security scan) + CD (build/push, Watchtower trigger)
-
-- /.pre-commit-config.yaml — lint/format/security hooks
-
-- /scripts                — one-off/admin scripts (migrations runner, seed data, etc.)
-
-- /docs                   — architecture notes, ADRs, runbooks
-
-Notes:
-
-- Business logic lives in /app/services, not in routers — routers stay thin.
-- Agent/graph definitions go in /app/agents; reusable tools go in /app/tools — don't inline tool logic inside a graph file.
-- DB access always goes through /app/db clients — no raw connections elsewhere.
-- New API endpoints: add router in /app/api/v1, register in /app/api/v1/__init__.py.
-- Tests are required for all new services/tools — mirror the source path under /tests.
-- If you add a new top-level directory or move a major module, update this section.
+If `docs/architecture.md` conflicts with what you're about to do, stop and ask for clarification.
 
 ---
 
