@@ -33,6 +33,7 @@ dev = [
     "httpx>=0.28.1",
     "pytest>=9.1.1",
     "pytest-asyncio>=1.4.0",
+    "pytest-cov>=6.0.0",          # ← added
 ]
 
 [tool.fastapi]
@@ -48,3 +49,7 @@ skips = ["B101"]
 
 [tool.ruff.lint.flake8-bugbear]
 extend-immutable-calls = ["fastapi.Depends", "fastapi.params.Depends"]
+
+# Mypy configuration
+[tool.mypy.overrides."pytest_asyncio"]
+ignore_missing_imports = true
