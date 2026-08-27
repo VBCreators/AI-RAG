@@ -165,12 +165,13 @@ jobs:
         run: |
           python -c "
           try:
-              from app.main import app
+              from ai_rag.main import app
               schema = app.openapi()
               assert 'openapi' in schema, 'Invalid OpenAPI schema generated'
               print('[OK] FastAPI OpenAPI schema validated successfully')
-          except (ImportError, ModuleNotFoundError):
-              print('[INFO] app.main not yet created, skipping runtime schema validation')
+          except (ImportError, ModuleNotFoundError) as err:
+              print(f'[ERROR] Failed to load ai_rag.main: {err}')
+              exit(1)
           "
 
       - name: Run Unit Tests (if they exist)
@@ -179,7 +180,7 @@ jobs:
           if [ -d "tests/unit" ] && [ -n "$(find tests/unit -name '*.py' -not -name '__init__.py' -print -quit)" ]; then
             pytest tests/unit \
               --junitxml=test-results/unit-junit.xml \
-              --cov=app \
+              --cov=ai_rag \
               --cov-report=xml:coverage-results/coverage-unit.xml \
               --cov-report=term-missing \
               -v
@@ -234,7 +235,7 @@ jobs:
           if [ -d "tests/integration" ] && [ -n "$(find tests/integration -name '*.py' -not -name '__init__.py' -print -quit)" ]; then
             pytest tests/integration \
               --junitxml=test-results/integration-junit.xml \
-              --cov=app \
+              --cov=ai_rag \
               --cov-report=xml:coverage-results/coverage-int.xml \
               --cov-report=term-missing \
               -v

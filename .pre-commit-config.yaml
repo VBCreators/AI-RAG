@@ -198,7 +198,7 @@ repos:
       - id: openapi-check
         name: OpenAPI schema validation
         entry: >-
-          bash -c '[ -f app/main.py ] && python -c "from app.main import app; schema = app.openapi(); assert \"openapi\" in schema; print(\"OpenAPI schema OK\")" || echo "[SKIP] openapi-check - app/main.py not found"'
+          bash -c '[ -f src/ai_rag/main.py ] && python -c "from ai_rag.main import app; schema = app.openapi(); assert \"openapi\" in schema; print(\"OpenAPI schema OK\")" || echo "[SKIP] openapi-check - src/ai_rag/main.py not found"'
         language: system
         stages: [pre-push]
         pass_filenames: false
