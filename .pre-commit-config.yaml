@@ -81,6 +81,7 @@ repos:
       - id: bandit
         name: Bandit SAST – Python Security Scan
         args: ["-c", "pyproject.toml"]
+        exclude: ^tests/
         additional_dependencies: ["bandit[toml]"]
 
   # ===========================================================================

@@ -7,6 +7,8 @@ requires-python = ">=3.14"
 dependencies = [
     "bandit>=1.9.4",
     "fastapi[standard]>=0.141.1",
+    "langchain-core>=0.3.0",
+    "langchain-google-genai>=2.0.0",
     "mypy>=2.3.1",
     "pip-audit>=2.10.1",
     "pydantic>=2.13.4",
@@ -14,6 +16,8 @@ dependencies = [
     "pytest>=9.1.1",
     "python-dotenv>=1.2.3",
     "semgrep>=1.173.0",
+    "sse-starlette>=2.2.0",
+    "structlog>=25.1.0",
     "uvicorn[standard]>=0.52.4",
 ]
 
@@ -33,3 +37,14 @@ dev = [
 
 [tool.fastapi]
 entrypoint = "ai_rag.main:app"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+
+[tool.bandit]
+exclude_dirs = ["tests", ".venv"]
+skips = ["B101"]
+
+[tool.ruff.lint.flake8-bugbear]
+extend-immutable-calls = ["fastapi.Depends", "fastapi.params.Depends"]
