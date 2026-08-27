@@ -1,7 +1,7 @@
 ---
 name: testing-ai-agents
 description: Testing patterns for LangChain/LangGraph/Deep Agents code — unit testing tools and graph nodes with fake/deterministic LLMs, integration testing full graphs end-to-end against ephemeral Postgres/Redis via testcontainers, testing FastAPI agent routes with dependency-overridden Keycloak auth, and adversarial testing for prompt injection, malformed tool args, and runaway/over-budget loops. Use this skill whenever writing, reviewing, or reasoning about tests for an agent, sub-agent, tool, chain, graph node, or agent-backed FastAPI route — including when the user says "test this", "add coverage", "write tests for X", or "how do I test my agent". Also consult it whenever the langchain-langgraph-engineer agent writes new agent/tool/route code, since every unit of that code needs matching tests written in the same turn.
----
+--- 
 
 # Testing AI Agents
 

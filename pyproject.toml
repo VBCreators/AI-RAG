@@ -11,6 +11,7 @@ dependencies = [
     "langchain-google-genai>=2.0.0",
     "mypy>=2.3.1",
     "pip-audit>=2.10.1",
+    "pre-commit>=4.6.2",
     "pydantic>=2.13.4",
     "pydantic-settings>=2.15.0",
     "pytest>=9.1.1",
@@ -22,7 +23,7 @@ dependencies = [
 ]
 
 [project.scripts]
-ai-rag = "ai_rag:main"          # ← fixed
+ai-rag = "ai_rag:main"
 
 [build-system]
 requires = ["uv_build>=0.12.5,<0.13.0"]
@@ -33,7 +34,7 @@ dev = [
     "httpx>=0.28.1",
     "pytest>=9.1.1",
     "pytest-asyncio>=1.4.0",
-    "pytest-cov>=6.0.0",          # ← added
+    "pytest-cov>=6.0.0",
 ]
 
 [tool.fastapi]
@@ -50,6 +51,7 @@ skips = ["B101"]
 [tool.ruff.lint.flake8-bugbear]
 extend-immutable-calls = ["fastapi.Depends", "fastapi.params.Depends"]
 
-# Mypy configuration
-[tool.mypy.overrides."pytest_asyncio"]
+# Mypy configuration – overrides must be an array of tables
+[[tool.mypy.overrides]]
+module = "pytest_asyncio"
 ignore_missing_imports = true
