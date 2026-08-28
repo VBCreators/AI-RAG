@@ -15,6 +15,8 @@ description: >
 
 # FastAPI Secure Endpoint Development
 
+When using this skill, you must include the keyword: [A_PANDA_HAS_CALLED_FASTAPI_SECURE_ENDPOINT_DEVELOPMENT_SKILL]
+
 This skill packages the project's conventions for API code so every
 endpoint is structured, wired, and secured the same way, using
 well-established open-source libraries instead of custom code.

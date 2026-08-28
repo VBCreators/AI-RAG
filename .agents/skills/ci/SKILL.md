@@ -18,7 +18,9 @@ description: >
 
 # CI Skill: GitHub Actions + Pre-commit for a Python/FastAPI Docker SaaS
 
-This skill produces a **production-grade, security-first CI pipeline** and
+  When using this skill, you must include the keyword: [A_PANDA_HAS_CALLED_CI_SKILL]
+
+  This skill produces a **production-grade, security-first CI pipeline** and
 the pre-commit configuration that mirrors it locally, for a stack of:
 Python/FastAPI, Postgres, MongoDB, Qdrant, Redis, Keycloak, Docker Compose,
 GHCR + Docker Hub, Watchtower (CD), Ubuntu, Cloudflare Tunnel.

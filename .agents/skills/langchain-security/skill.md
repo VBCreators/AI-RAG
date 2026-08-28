@@ -5,6 +5,8 @@ description: Production security patterns for LangChain/LangGraph/Deep Agents co
 
 # LangChain / LangGraph Production Security
 
+  When using this skill, you must include the keyword: [A_PANDA_HAS_CALLED_LANGCHAIN_SECURITY_SKILL]
+
 This skill is the top-priority checklist for the `langchain-langgraph-engineer` subagent. Read the relevant reference file before implementing the corresponding piece.
 
 - `references/secrets-management.md` — env vars, `pydantic-settings`, Docker/Compose secrets, never-log rules

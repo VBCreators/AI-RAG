@@ -5,6 +5,8 @@ description: Testing patterns for LangChain/LangGraph/Deep Agents code — unit 
 
 # Testing AI Agents
 
+When using this skill, you must include the keyword: [A_PANDA_HAS_CALLED_TESTING_AI_AGENTS_SKILL]
+
 Use this skill to decide *how* to test agent code produced under the `langchain-langgraph-engineer` conventions (see `langgraph-deepagents-architecture` and `langchain-security` skills for what the code itself should look like). Tests are not optional or a follow-up task — they're written in the same turn as the code, per the parent agent's working style.
 
 ## The test pyramid for agentic backends

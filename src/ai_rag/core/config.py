@@ -38,7 +38,7 @@ class Settings(BaseSettings):
 
     # ── LLM Settings ──
     llm_provider: str = "google-genai"
-    llm_model_name: str = "gemini-2.5-flash-lite"
+    llm_model_name: str = "gemini-3.5-flash-lite"
     llm_temperature: float = 0.7
     llm_max_output_tokens: int = 2048
     llm_top_p: float = 0.95
