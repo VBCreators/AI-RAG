@@ -7,29 +7,93 @@ requires-python = ">=3.14"
 dependencies = [
     "bandit>=1.9.4",
     "fastapi[standard]>=0.141.1",
+    "langchain-core>=0.3.0",
+    "langchain-google-genai>=2.0.0",
     "mypy>=2.3.1",
     "pip-audit>=2.10.1",
+    "pre-commit>=4.6.2",
     "pydantic>=2.13.4",
     "pydantic-settings>=2.15.0",
     "pytest>=9.1.1",
     "python-dotenv>=1.2.3",
     "semgrep>=1.173.0",
+    "sse-starlette>=2.2.0",
+    "structlog>=25.1.0",
     "uvicorn[standard]>=0.52.4",
 ]
 
 [project.scripts]
-ai-rag = "ai_rag:main"          # ← fixed
+ai-rag = "ai_rag:main"
 
 [build-system]
 requires = ["uv_build>=0.12.5,<0.13.0"]
 build-backend = "uv_build"
+
+[project.optional-dependencies]
+dev = [
+    "httpx>=0.28.1",
+    "pytest>=9.1.1",
+    "pytest-asyncio>=1.4.0",
+    "pytest-cov>=6.0.0",
+    "mypy>=2.3.1",
+    "types-requests",
+    "types-PyYAML",
+]
 
 [dependency-groups]
 dev = [
     "httpx>=0.28.1",
     "pytest>=9.1.1",
     "pytest-asyncio>=1.4.0",
+    "pytest-cov>=6.0.0",
+    "mypy>=2.3.1",
+    "types-requests",
+    "types-PyYAML",
 ]
 
 [tool.fastapi]
 entrypoint = "ai_rag.main:app"
+
+[tool.ruff]
+target-version = "py314"
+line-length = 88
+src = ["src", "tests"]
+exclude = [
+    ".agents",
+    ".git",
+    ".mypy_cache",
+    ".pytest_cache",
+    ".ruff_cache",
+    ".venv",
+    "venv",
+    "dist",
+    "build",
+]
+
+[tool.ruff.lint.flake8-bugbear]
+extend-immutable-calls = ["fastapi.Depends", "fastapi.params.Depends"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+testpaths = ["tests"]
+
+[tool.coverage.run]
+source = ["ai_rag"]
+branch = true
+omit = [
+    "tests/*",
+]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false
+
+[tool.bandit]
+exclude_dirs = ["tests", ".venv"]
+skips = ["B101"]
+
+# Mypy configuration – overrides must be an array of tables
+[[tool.mypy.overrides]]
+module = "pytest_asyncio"
+ignore_missing_imports = true

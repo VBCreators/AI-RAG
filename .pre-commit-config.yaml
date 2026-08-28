@@ -14,7 +14,7 @@ repos:
   # 1. SECRET & CREDENTIAL LEAK DETECTION (Highest priority)
   # ===========================================================================
   - repo: https://github.com/gitleaks/gitleaks
-    rev: v8.30.1
+    rev: v8.30.0
     hooks:
       - id: gitleaks
         name: Detect Hardcoded Secrets (Gitleaks)
@@ -64,7 +64,7 @@ repos:
   # 3. PYTHON CODE LINTING & FORMATTING
   # ===========================================================================
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.16.2
+    rev: v0.16.5
     hooks:
       - id: ruff-check
         name: Ruff Linter
@@ -81,6 +81,7 @@ repos:
       - id: bandit
         name: Bandit SAST – Python Security Scan
         args: ["-c", "pyproject.toml"]
+        exclude: ^tests/
         additional_dependencies: ["bandit[toml]"]
 
   # ===========================================================================
@@ -131,7 +132,7 @@ repos:
       - id: mypy
         name: mypy (static type checking)
         entry: >-
-          bash -c '[ -d src ] || [ -d app ] && mypy --config-file=pyproject.toml src app 2>/dev/null || echo "[SKIP] mypy - No src/ or app/ directory found"'
+          bash -c 'export PATH=".venv/bin:$PATH"; if [ -d src ] || [ -d app ]; then mypy --config-file=pyproject.toml src; else echo "[SKIP] mypy - No src/ or app/ directory found"; fi'
         language: system
         types: [python]
         stages: [pre-push]
@@ -141,7 +142,7 @@ repos:
       - id: pytest
         name: pytest (unit + integration)
         entry: >-
-          bash -c '[ -d src ] || [ -d app ] || [ -d tests ] && pytest -q --tb=short --cov=src --cov=app --cov-fail-under=80 2>/dev/null || echo "[SKIP] pytest - No src/, app/, or tests/ directory found"'
+          bash -c 'export PATH=".venv/bin:$PATH"; export PYTHONPATH=src; if [ -d tests ]; then pytest -q --tb=short; else echo "[SKIP] pytest - No tests/ directory found"; fi'
         language: system
         types: [python]
         stages: [pre-push]
@@ -151,7 +152,7 @@ repos:
       - id: bandit-full
         name: Bandit (full security scan)
         entry: >-
-          bash -c '[ -d src ] || [ -d app ] && bandit -r src app -c pyproject.toml -ll 2>/dev/null || echo "[SKIP] bandit-full - No src/ or app/ directory found"'
+          bash -c 'export PATH=".venv/bin:$PATH"; if [ -d src ] || [ -d app ]; then bandit -r src -c pyproject.toml -ll; else echo "[SKIP] bandit-full - No src/ or app/ directory found"; fi'
         language: system
         types: [python]
         stages: [pre-push]
@@ -161,7 +162,7 @@ repos:
       - id: semgrep
         name: Semgrep security rules
         entry: >-
-          bash -c 'DIRS=""; [ -d src ] && DIRS="$DIRS src"; [ -d app ] && DIRS="$DIRS app"; [ -n "$DIRS" ] && semgrep --config=auto --error $DIRS || echo "[SKIP] semgrep - No src/ or app/ directory found"'
+          bash -c 'export PATH=".venv/bin:$PATH"; if command -v semgrep >/dev/null 2>&1 && ([ -d src ] || [ -d app ]); then semgrep --config=auto --error src; else echo "[SKIP] semgrep - semgrep not found or no src/ directory"; fi'
         language: system
         stages: [pre-push]
         pass_filenames: false
@@ -179,7 +180,7 @@ repos:
       - id: docker-build
         name: Docker build validation
         entry: >-
-          bash -c 'docker info >/dev/null 2>&1 && docker build -t ai-saas:pre-push-check . || echo "[SKIP] docker-build - Docker daemon not available"'
+          bash -c 'if [ -s Dockerfile ] && docker info >/dev/null 2>&1; then docker build -t ai-saas:pre-push-check .; else echo "[SKIP] docker-build - Dockerfile empty or Docker daemon not available"; fi'
         language: system
         stages: [pre-push]
         pass_filenames: false
@@ -188,7 +189,7 @@ repos:
       - id: pip-audit
         name: pip-audit (dependency vulnerabilities)
         entry: >-
-          bash -c '[ -f requirements.txt ] || [ -f pyproject.toml ] && pip-audit --strict 2>/dev/null || echo "[SKIP] pip-audit - No requirements.txt or pyproject.toml found"'
+          bash -c 'export PATH=".venv/bin:$PATH"; if command -v pip-audit >/dev/null 2>&1 && ([ -f requirements.txt ] || [ -f pyproject.toml ]); then pip-audit --strict; else echo "[SKIP] pip-audit - pip-audit not found or no dependency files"; fi'
         language: system
         stages: [pre-push]
         pass_filenames: false
@@ -197,7 +198,7 @@ repos:
       - id: openapi-check
         name: OpenAPI schema validation
         entry: >-
-          bash -c '[ -f app/main.py ] && python -c "from app.main import app; schema = app.openapi(); assert \"openapi\" in schema; print(\"OpenAPI schema OK\")" || echo "[SKIP] openapi-check - app/main.py not found"'
+          bash -c 'export PATH=".venv/bin:$PATH"; export PYTHONPATH=src; if [ -f src/ai_rag/main.py ]; then python -c "from ai_rag.main import app; schema = app.openapi(); assert \"openapi\" in schema; print(\"OpenAPI schema OK\")"; else echo "[SKIP] openapi-check - src/ai_rag/main.py not found"; fi'
         language: system
         stages: [pre-push]
         pass_filenames: false

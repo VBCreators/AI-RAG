@@ -1,9 +1,8 @@
 from fastapi import APIRouter
 
-from ai_rag.api.v1.endpoints.echo import router as echo_router
-from ai_rag.api.v1.endpoints.health import router as health_router
+from ai_rag.api.v1.endpoints.chat.router import router as chat_router
 
-router = APIRouter(prefix="/v1", tags=["v1"])
+router = APIRouter(prefix="/v1")
+router.include_router(chat_router)
 
-router.include_router(health_router)
-router.include_router(echo_router)
+__all__ = ["router"]

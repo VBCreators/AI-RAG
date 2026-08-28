@@ -140,6 +140,8 @@ weaviate/
 # Tests & Coverage
 # ============================================
 coverage/
+test-results/
+coverage-results/
 .nyc_output/
 nosetests.xml
 coverage.xml

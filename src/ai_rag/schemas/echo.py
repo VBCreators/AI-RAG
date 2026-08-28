@@ -1,20 +1,18 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class EchoRequest(BaseModel):
-    message: str = Field(
-        ..., min_length=1, max_length=500, description="Message to be echoed"
-    )
+    """Request schema for echo service."""
 
-    model_config = {"json_schema_extra": {"example": {"message": "Hello World"}}}
+    model_config = ConfigDict(extra="forbid")
+
+    message: str = Field(..., min_length=1, description="Message to echo")
 
 
 class EchoResponse(BaseModel):
-    original: str = Field(..., description="Original message")
-    reversed: str = Field(..., description="Reversed message")
+    """Response schema for echo service."""
 
-    model_config = {
-        "json_schema_extra": {
-            "example": {"original": "Hello World", "reversed": "dlroW olleH"}
-        }
-    }
+    model_config = ConfigDict(extra="forbid")
+
+    original: str
+    reversed: str
