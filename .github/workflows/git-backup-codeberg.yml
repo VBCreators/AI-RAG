@@ -1,0 +1,509 @@
+name: Repository Backup — Codeberg
+
+on:
+  # GitHub evaluates `cron` in UTC only — `on.schedule` has no timezone key.
+  # IST is UTC+5:30, so 04:17 IST = 22:47 UTC on the PREVIOUS day.
+  # Monday–Friday 04:17 IST therefore maps to Sunday–Thursday 22:47 UTC,
+  # i.e. '47 22 * * 0-4'. The off-minute avoids top-of-hour cron congestion.
+  # GitHub treats scheduled runs as best-effort (they can be delayed), so the
+  # IST weekday guard below is the second line of defence: no matter how much
+  # a run drifts, it can never execute on an IST Saturday or Sunday.
+  schedule:
+    - cron: '47 22 * * 0-4'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: repository-backup
+  cancel-in-progress: false
+
+jobs:
+  backup-to-codeberg:
+    name: Mirror to Codeberg and update the backup log
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+
+    env:
+      LOG_FILE: docs/operations/git-backup-log.md
+      DEFAULT_BRANCH: ${{ github.event.repository.default_branch || github.ref_name }}
+      SOURCE_REPOSITORY: ${{ github.repository }}
+      TRIGGER_TYPE: ${{ github.event_name }}
+      WORKFLOW_RUN_ID: ${{ github.run_id }}
+      WORKFLOW_RUN_NUMBER: ${{ github.run_number }}
+
+      # Identity for the backup-log commits. For these commits to appear on
+      # your contribution graph, BHARGAV_AUTHOR_EMAIL must be an e-mail that
+      # is added and verified on your GitHub account.
+      AUTHOR_NAME: ${{ vars.BHARGAV_AUTHOR_NAME }}
+      AUTHOR_EMAIL: ${{ vars.BHARGAV_AUTHOR_EMAIL }}
+
+      # ------------------------------------------------------------------
+      # Destination block (Codeberg). The remote URL is derived from these
+      # values at run time. To add GitLab / GitFlic / etc. later: duplicate
+      # this job, change only this block, the two secret names and the two
+      # pinned fingerprints, and chain the copy with
+      # `needs: backup-to-codeberg` so two jobs never write the log file at
+      # the same time. (If you ever split destinations into separate workflow
+      # files instead, give every copy the same `concurrency.group`.)
+      # ------------------------------------------------------------------
+      DEST_NAME: Codeberg
+      DEST_SLUG: codeberg
+      DEST_HOST: codeberg.org
+      DEST_USERNAME: ${{ vars.CODEBERG_USERNAME }}
+      DEST_REPOSITORY: ${{ vars.CODEBERG_REPOSITORY }}   # repository NAME only, not "user/repo"
+
+      # Pin the destination HOST key. Verify this fingerprint once against
+      # the ED25519 key published at https://docs.codeberg.org/security/
+      DEST_EXPECTED_ED25519_FINGERPRINT: SHA256:mIlxA9k46MmM6qdJOdMnAQpzGxF4WIVVL+fj+wZbw0g
+
+      # Pin the PUBLIC fingerprint of the deploy key pair (the sha256 of
+      # "github_actions_codeberg_backup"). This proves the secret really
+      # holds the intended key. If you ever rotate the key, update this too.
+      DEST_EXPECTED_PUBLIC_KEY_FINGERPRINT: SHA256:oD9iyTlvbjAzRDVdLO1WFnI+mraq0BP5kuRG/JHcuTQ
+
+    steps:
+      - name: Weekday guard — skip scheduled runs that drift into a weekend (IST)
+        id: weekday_guard
+        shell: bash
+        run: |
+          set -euo pipefail
+          dow="$(TZ=Asia/Kolkata date +%u)"   # 1=Mon … 7=Sun
+          echo "IST weekday today: ${dow}"
+          if [ "${TRIGGER_TYPE}" = "schedule" ] && [ "${dow}" -ge 6 ]; then
+            echo "::notice::Scheduled run landed on a weekend (IST). Nothing to do."
+            echo "proceed=false" >> "${GITHUB_OUTPUT}"
+          else
+            echo "proceed=true" >> "${GITHUB_OUTPUT}"
+          fi
+
+      - name: Checkout repository (full history)
+        if: steps.weekday_guard.outputs.proceed == 'true'
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          # The GITHUB_TOKEN is needed only to push the backup-log commit to
+          # GitHub. The mirror itself goes over SSH and never sees it.
+          # For extra supply-chain hardening you may pin this to a full
+          # commit SHA instead of the major version tag.
+          persist-credentials: true
+
+      - name: Configure Git author for the backup log
+        if: steps.weekday_guard.outputs.proceed == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${AUTHOR_NAME}" ] || [ -z "${AUTHOR_EMAIL}" ]; then
+            echo "::error::Set the repository variables BHARGAV_AUTHOR_NAME and BHARGAV_AUTHOR_EMAIL."
+            exit 1
+          fi
+          git config user.name "${AUTHOR_NAME}"
+          git config user.email "${AUTHOR_EMAIL}"
+
+      - name: Mirror repository and record the result in the backup log
+        if: steps.weekday_guard.outputs.proceed == 'true'
+        shell: bash
+        env:
+          DEST_SSH_PRIVATE_KEY: ${{ secrets.CODEBERG_SSH_PRIVATE_KEY }}
+          DEST_SSH_KEY_PASSPHRASE: ${{ secrets.CODEBERG_SSH_PRIVATE_KEY_PASS_PHRASE }}
+        run: |
+          set -euo pipefail
+
+          # -----------------------------------------------------------------
+          # Runner-temp files used to pass results out of the backup sub-shell.
+          # -----------------------------------------------------------------
+          output_file="$RUNNER_TEMP/backup_output.log"
+          stage_file="$RUNNER_TEMP/backup_stage.txt"
+          meta_file="$RUNNER_TEMP/backup_meta.env"
+          ssh_env_file="$RUNNER_TEMP/backup_ssh.env"
+
+          started_epoch="$(date +%s)"
+          started_ist="$(TZ=Asia/Kolkata date '+%Y-%m-%d %H:%M:%S %Z')"
+          started_utc="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+          workflow_url="https://github.com/${SOURCE_REPOSITORY}/actions/runs/${WORKFLOW_RUN_ID}"
+          dest_display="${DEST_USERNAME}/${DEST_REPOSITORY}"
+
+          set_stage() { printf '%s\n' "$1" > "$stage_file"; }
+
+          # Create the log file with a stable header on first use (also
+          # repairs a zero-byte file left behind by an interrupted run).
+          mkdir -p "$(dirname "$LOG_FILE")"
+          if [ ! -s "$LOG_FILE" ]; then
+            cat > "$LOG_FILE" <<'BACKUP_HEADER_EOF'
+          # Git Backup Log
+
+          This file is maintained automatically by GitHub Actions.
+          Each backup run adds a new entry at the top. Older entries are kept.
+
+          The primary repository lives on GitHub.
+          Other platforms hold independent mirrors for durability.
+
+          ---
+          BACKUP_HEADER_EOF
+          fi
+
+          # Insert a new entry directly below the header (after its '---'
+          # line): the header always stays at the top and the newest entry is
+          # always the first entry. Existing entries are never modified. The
+          # header's '---' is always the FIRST '---' in the file, so '---'
+          # lines inside old entries' code fences can never confuse this.
+          prepend_log_entry() {
+            local entry="$1" tmp
+            tmp="$(mktemp)"
+            if grep -q '^---$' "$LOG_FILE" 2>/dev/null; then
+              ENTRY="$entry" awk '
+                !inserted && $0 == "---" {
+                  print
+                  print ""
+                  print ENVIRON["ENTRY"]
+                  print ""
+                  inserted = 1
+                  next
+                }
+                { print }
+              ' "$LOG_FILE" > "$tmp"
+            else
+              { printf '%s\n\n' "$entry"; cat "$LOG_FILE"; } > "$tmp"
+            fi
+            mv "$tmp" "$LOG_FILE"
+          }
+
+          # Commit the log file to the default branch on GitHub. Fast-forward
+          # push first; if the push is rejected because someone pushed in the
+          # meantime, rebase the single log commit and retry once. The source
+          # repository is never force-pushed.
+          commit_log_to_github() {
+            local message="$1"
+            if ! git add -- "$LOG_FILE"; then
+              echo "ERROR: could not stage ${LOG_FILE} (is it ignored by .gitignore?)."
+              return 1
+            fi
+            if git diff --cached --quiet; then
+              echo "No backup-log changes to commit."
+              return 0
+            fi
+            if ! git commit -m "$message"; then
+              echo "ERROR: could not commit the backup-log entry."
+              return 1
+            fi
+            if git push origin "HEAD:${DEFAULT_BRANCH}"; then
+              return 0
+            fi
+            echo "::warning::Log push rejected — rebasing the log commit onto the latest ${DEFAULT_BRANCH} and retrying once."
+            git pull --rebase origin "${DEFAULT_BRANCH}"
+            git push origin "HEAD:${DEFAULT_BRANCH}"
+          }
+
+          run_backup() {
+            # -------------------- 1. validate inputs --------------------
+            set_stage "validation"
+            local missing=0 v
+            for v in DEST_NAME DEST_SLUG DEST_HOST DEST_USERNAME DEST_REPOSITORY \
+                     DEST_EXPECTED_ED25519_FINGERPRINT \
+                     DEST_EXPECTED_PUBLIC_KEY_FINGERPRINT DEFAULT_BRANCH; do
+              if [ -z "${!v:-}" ]; then
+                echo "ERROR: required value '${v}' is empty — check the repository variables."
+                missing=1
+              fi
+            done
+            if [ -z "${DEST_SSH_PRIVATE_KEY:-}" ]; then
+              echo "ERROR: the destination SSH private key secret is empty."
+              missing=1
+            fi
+            # user/repo-style or otherwise malformed values would silently
+            # break the scp-style remote URL — reject them loudly here.
+            case "$DEST_USERNAME" in
+              *[!A-Za-z0-9._-]*) echo "ERROR: DEST_USERNAME must be a plain username (no 'user/' prefix, no spaces)."; missing=1 ;;
+            esac
+            case "$DEST_REPOSITORY" in
+              *[!A-Za-z0-9._-]*) echo "ERROR: DEST_REPOSITORY must be the repository NAME only (no 'user/' prefix, no spaces)."; missing=1 ;;
+            esac
+            [ "$missing" -eq 0 ] || return 1
+
+            # scp-style SSH URL, derived from the validated parts so a new
+            # destination only needs HOST / USERNAME / REPOSITORY changed.
+            local dest_remote="git@${DEST_HOST}:${DEST_USERNAME}/${DEST_REPOSITORY}.git"
+
+            # -------------------- 2. load the SSH key -------------------
+            set_stage "ssh key setup"
+            local key_file="$HOME/.ssh/${DEST_SLUG}_ed25519"
+            mkdir -p "$HOME/.ssh"
+            chmod 700 "$HOME/.ssh"
+            printf '%s\n' "$DEST_SSH_PRIVATE_KEY" | tr -d '\r' > "$key_file"
+            chmod 600 "$key_file"
+
+            eval "$(ssh-agent -s)" > /dev/null
+            local askpass=""
+            if [ -n "${DEST_SSH_KEY_PASSPHRASE:-}" ]; then
+              # Feed the passphrase through ssh-agent + SSH_ASKPASS so it
+              # never appears on a command line and nothing hangs on a prompt.
+              askpass="$RUNNER_TEMP/askpass_${DEST_SLUG}.sh"
+              cat > "$askpass" <<'ASKPASS_EOF'
+          #!/usr/bin/env bash
+          printf '%s\n' "$DEST_SSH_KEY_PASSPHRASE"
+          ASKPASS_EOF
+              chmod 700 "$askpass"
+              export SSH_ASKPASS="$askpass"
+              export SSH_ASKPASS_REQUIRE=force
+              export DISPLAY="${DISPLAY:-:0}"
+            else
+              echo "::warning::No passphrase secret supplied — assuming the private key is unencrypted (ssh-add will fail clearly if it is not)."
+            fi
+            if ! ssh-add "$key_file"; then
+              echo "ERROR: ssh-add failed — check the private key secret and its passphrase secret."
+              if [ -n "$askpass" ]; then rm -f "$askpass"; fi
+              return 1
+            fi
+            if [ -n "$askpass" ]; then rm -f "$askpass"; fi
+
+            # Confirm the agent really holds the intended key (guards
+            # against the wrong key being pasted into the secret).
+            local loaded_fp
+            loaded_fp="$(ssh-add -l | awk 'NR==1 {print $2}')"
+            echo "Loaded key fingerprint: ${loaded_fp}"
+            if [ "$loaded_fp" != "$DEST_EXPECTED_PUBLIC_KEY_FINGERPRINT" ]; then
+              echo "ERROR: the key in the secret does not match DEST_EXPECTED_PUBLIC_KEY_FINGERPRINT."
+              return 1
+            fi
+
+            # Publish the agent's copy of the public key next to the private
+            # file so ssh can always identify it without decrypting the file.
+            ssh-add -L | head -n 1 > "${key_file}.pub" 2>/dev/null || true
+            chmod 600 "${key_file}.pub"
+            unset SSH_ASKPASS SSH_ASKPASS_REQUIRE DEST_SSH_PRIVATE_KEY DEST_SSH_KEY_PASSPHRASE
+            ssh-add -l
+
+            # -------------------- 3. pin the host key -------------------
+            set_stage "host key verification"
+            ssh-keyscan -T 10 -t ed25519 "$DEST_HOST" \
+              > "$RUNNER_TEMP/${DEST_SLUG}_host_keys" 2>/dev/null || true
+            awk '/ssh-ed25519 / { print; exit }' \
+              "$RUNNER_TEMP/${DEST_SLUG}_host_keys" \
+              > "$RUNNER_TEMP/${DEST_SLUG}_host_key"
+            if [ ! -s "$RUNNER_TEMP/${DEST_SLUG}_host_key" ]; then
+              echo "ERROR: could not obtain the ${DEST_NAME} ED25519 host key."
+              return 1
+            fi
+            local actual_fingerprint
+            actual_fingerprint="$(ssh-keygen -lf "$RUNNER_TEMP/${DEST_SLUG}_host_key" -E sha256 | awk '{print $2}')"
+            echo "${DEST_NAME} host key fingerprint: ${actual_fingerprint}"
+            if [ "$actual_fingerprint" != "$DEST_EXPECTED_ED25519_FINGERPRINT" ]; then
+              echo "ERROR: ${DEST_NAME} host key fingerprint does not match the pinned value."
+              return 1
+            fi
+            cp "$RUNNER_TEMP/${DEST_SLUG}_host_key" "$HOME/.ssh/known_hosts"
+            chmod 600 "$HOME/.ssh/known_hosts"
+
+            # Git reaches the destination only through this hardened command.
+            export GIT_SSH_COMMAND="ssh -i $key_file -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=$HOME/.ssh/known_hosts -o ConnectTimeout=15"
+
+            # Hand the SSH settings back to the parent shell (used for the
+            # second push after the log commit).
+            {
+              printf "export GIT_SSH_COMMAND='%s'\n" "$GIT_SSH_COMMAND"
+              printf "export SSH_AUTH_SOCK='%s'\n" "$SSH_AUTH_SOCK"
+              printf "export SSH_AGENT_PID='%s'\n" "$SSH_AGENT_PID"
+            } > "$ssh_env_file"
+
+            # -------------------- 4. materialize all branches locally ----
+            set_stage "fetch source refs"
+            # checkout@v5 (fetch-depth: 0) already fetched every branch and
+            # tag into refs/remotes/origin/*; this fetch materializes them as
+            # local refs so the mirror push can use plain refspecs. No
+            # --prune / --force here: the clone is seconds old, so there is
+            # nothing stale to prune, and the leading '+' already permits
+            # forced updates for branches rewritten on GitHub. If a branch
+            # moves in the seconds between checkout and this fetch, git
+            # refuses to fetch into the checked-out branch and the run fails
+            # safely (logged, retried next run) — nothing is ever corrupted.
+            git fetch origin \
+              '+refs/heads/*:refs/heads/*' \
+              '+refs/tags/*:refs/tags/*'
+            git switch "$DEFAULT_BRANCH"
+
+            # -------------------- 5. metadata for the log entry ---------
+            set_stage "metadata"
+            local src_sha branch_count tag_count
+            src_sha="$(git rev-parse "refs/heads/${DEFAULT_BRANCH}")"
+            branch_count="$(git for-each-ref --format='%(refname)' refs/heads | wc -l | tr -d ' ')"
+            tag_count="$(git for-each-ref --format='%(refname)' refs/tags | wc -l | tr -d ' ')"
+            {
+              echo "SRC_SHA=${src_sha}"
+              echo "BRANCH_COUNT=${branch_count}"
+              echo "TAG_COUNT=${tag_count}"
+            } > "$meta_file"
+
+            echo "Source repository : ${SOURCE_REPOSITORY}"
+            echo "Source branch     : ${DEFAULT_BRANCH}"
+            echo "Source commit     : ${src_sha}"
+            echo "Destination       : ${DEST_NAME} (${dest_display})"
+            echo "Branches to mirror: ${branch_count}"
+            echo "Tags to mirror    : ${tag_count}"
+
+            # -------------------- 6. pre-flight -------------------------
+            set_stage "pre-flight"
+            git ls-remote "$dest_remote" >/dev/null
+
+            # -------------------- 7. mirror push ------------------------
+            # This is the one place where forced updates and pruning are
+            # genuinely required: without them, a branch rewritten on GitHub
+            # (rebase / force-push) would make the mirror fail forever, and a
+            # branch deleted on GitHub would live on forever on the mirror.
+            # The leading '+' on each refspec is the per-refspec equivalent
+            # of --force; --prune removes mirror-side branches/tags that no
+            # longer exist at the source. The mirror is therefore an exact
+            # copy — never commit directly on the destination. (--atomic is
+            # deliberately omitted: it needs server-side support that not
+            # every Forgejo/Gitea instance advertises, and the next run
+            # re-mirrors everything anyway.)
+            set_stage "mirror push"
+            git remote remove "$DEST_SLUG" 2>/dev/null || true
+            git remote add "$DEST_SLUG" "$dest_remote"
+            git push --prune "$DEST_SLUG" \
+              '+refs/heads/*:refs/heads/*' \
+              '+refs/tags/*:refs/tags/*'
+          }
+
+          # -----------------------------------------------------------------
+          # Run the backup in a sub-shell: output is streamed to the Actions
+          # log (via tee) and kept on disk so any failure can be quoted into
+          # the log entry with its stage and reason.
+          # -----------------------------------------------------------------
+          set +e
+          ( set -euo pipefail; run_backup ) 2>&1 | tee "$output_file"
+          backup_status="${PIPESTATUS[0]}"
+          set -e
+
+          # Restore the SSH environment in this shell and drop the secrets.
+          if [ -f "$ssh_env_file" ]; then
+            . "$ssh_env_file"
+          fi
+          unset DEST_SSH_PRIVATE_KEY DEST_SSH_KEY_PASSPHRASE
+
+          SRC_SHA="unknown"
+          BRANCH_COUNT="unknown"
+          TAG_COUNT="unknown"
+          if [ -f "$meta_file" ]; then
+            . "$meta_file"
+          fi
+
+          if [ "$backup_status" -ne 0 ]; then
+            finished_ist="$(TZ=Asia/Kolkata date '+%Y-%m-%d %H:%M:%S %Z')"
+            duration="$(( $(date +%s) - started_epoch ))"
+            stage="$(cat "$stage_file" 2>/dev/null || echo "unknown")"
+            reason="$(tail -n 40 "$output_file" | sed 's/```/` ` `/g' | tr -d '\r' | head -c 4000 || true)"
+
+            # Only known-safe values (timestamps, ids, counters) are expanded
+            # inside this heredoc; $reason is appended separately below so
+            # that raw command output can never be executed as shell code.
+            failure_entry="$(cat <<BACKUP_ENTRY_EOF
+          ## ${finished_ist} — ${DEST_NAME} — FAILURE
+
+          - **Result:** \`FAILURE\`
+          - **Failure stage:** \`${stage}\`
+          - **Source:** \`${SOURCE_REPOSITORY}\`
+          - **Source branch:** \`${DEFAULT_BRANCH}\`
+          - **Source commit:** \`${SRC_SHA}\`
+          - **Destination:** [\`${dest_display}\`](https://${DEST_HOST}/${dest_display})
+          - **Trigger:** \`${TRIGGER_TYPE}\`
+          - **Workflow run:** [Run #${WORKFLOW_RUN_NUMBER}](${workflow_url})
+          - **Started:** \`${started_ist}\`
+          - **Started (UTC):** \`${started_utc}\`
+          - **Duration:** \`${duration} seconds\`
+          - **Branches to mirror:** \`${BRANCH_COUNT}\`
+          - **Tags to mirror:** \`${TAG_COUNT}\`
+          - **Reason:**
+          \`\`\`text
+          BACKUP_ENTRY_EOF
+          )"
+            failure_entry+=$'\n'"${reason}"$'\n''```'
+
+            prepend_log_entry "$failure_entry"
+            if ! commit_log_to_github "docs(backup): log failed ${DEST_NAME} mirror (${stage})"; then
+              echo "::error::Could not commit the failure entry to the repository. Entry preserved in this run's log:"
+              printf '%s\n' "$failure_entry"
+              exit 1
+            fi
+            echo "::error::${DEST_NAME} backup failed at stage: ${stage}"
+            exit "$backup_status"
+          fi
+
+          # ------------------- success entry -------------------------------
+          mirror_finished_ist="$(TZ=Asia/Kolkata date '+%Y-%m-%d %H:%M:%S %Z')"
+          mirror_duration="$(( $(date +%s) - started_epoch ))"
+
+          success_entry="$(cat <<BACKUP_ENTRY_EOF
+          ## ${mirror_finished_ist} — ${DEST_NAME} — SUCCESS
+
+          - **Result:** \`SUCCESS\`
+          - **Source:** \`${SOURCE_REPOSITORY}\`
+          - **Source branch:** \`${DEFAULT_BRANCH}\`
+          - **Source commit:** \`${SRC_SHA}\`
+          - **Destination:** [\`${dest_display}\`](https://${DEST_HOST}/${dest_display})
+          - **Trigger:** \`${TRIGGER_TYPE}\`
+          - **Workflow run:** [Run #${WORKFLOW_RUN_NUMBER}](${workflow_url})
+          - **Started:** \`${started_ist}\`
+          - **Started (UTC):** \`${started_utc}\`
+          - **Mirror completed:** \`${mirror_finished_ist}\`
+          - **Duration:** \`${mirror_duration} seconds\`
+          - **Branches mirrored:** \`${BRANCH_COUNT}\`
+          - **Tags mirrored:** \`${TAG_COUNT}\`
+          - **Notes:** Branches and tags synchronized from GitHub to ${DEST_NAME}.
+          BACKUP_ENTRY_EOF
+          )"
+          prepend_log_entry "$success_entry"
+          if ! commit_log_to_github "docs(backup): log successful ${DEST_NAME} mirror (${SRC_SHA:0:7})"; then
+            echo "::error::Could not commit the success entry to the repository. Entry preserved in this run's log:"
+            printf '%s\n' "$success_entry"
+            exit 1
+          fi
+
+          # ------------------- second push ---------------------------------
+          # Re-run the mirror so the backup also contains the backup-log
+          # commit that was just pushed to GitHub. Same refspecs as before:
+          # forced updates + pruning keep the mirror an exact copy.
+          set +e
+          git push --prune "$DEST_SLUG" \
+            '+refs/heads/*:refs/heads/*' \
+            '+refs/tags/*:refs/tags/*' 2>&1 | tee "$RUNNER_TEMP/log_push_output.log"
+          log_push_status="${PIPESTATUS[0]}"
+          set -e
+
+          if [ "$log_push_status" -ne 0 ]; then
+            finished_ist="$(TZ=Asia/Kolkata date '+%Y-%m-%d %H:%M:%S %Z')"
+            reason="$(tail -n 40 "$RUNNER_TEMP/log_push_output.log" | sed 's/```/` ` `/g' | tr -d '\r' | head -c 4000 || true)"
+
+            partial_entry="$(cat <<BACKUP_ENTRY_EOF
+          ## ${finished_ist} — ${DEST_NAME} — PARTIAL FAILURE
+
+          - **Result:** \`PARTIAL FAILURE\`
+          - **Source:** \`${SOURCE_REPOSITORY}\`
+          - **Source branch:** \`${DEFAULT_BRANCH}\`
+          - **Source commit:** \`${SRC_SHA}\`
+          - **Destination:** [\`${dest_display}\`](https://${DEST_HOST}/${dest_display})
+          - **Trigger:** \`${TRIGGER_TYPE}\`
+          - **Workflow run:** [Run #${WORKFLOW_RUN_NUMBER}](${workflow_url})
+          - **Initial source mirror:** \`SUCCESS\`
+          - **Backup-log commit on GitHub:** \`SUCCESS\`
+          - **Mirror of the log commit to ${DEST_NAME}:** \`FAILURE\`
+          - **Reason:**
+          \`\`\`text
+          BACKUP_ENTRY_EOF
+          )"
+            partial_entry+=$'\n'"${reason}"$'\n''```'
+            partial_entry+=$'\n\n''The source-code mirror succeeded. The mirror of the new backup-log commit failed; the next scheduled run will retry the full mirror.'
+
+            prepend_log_entry "$partial_entry"
+            if ! commit_log_to_github "docs(backup): log partial ${DEST_NAME} mirror failure (log re-sync)"; then
+              echo "::error::Could not commit the partial-failure entry to the repository. Entry preserved in this run's log:"
+              printf '%s\n' "$partial_entry"
+              exit 1
+            fi
+            echo "::warning::Source mirror succeeded, but mirroring the log commit failed. The next run will retry."
+            exit "$log_push_status"
+          fi
+
+          echo "::notice::${DEST_NAME} backup completed successfully."
