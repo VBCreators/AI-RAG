@@ -64,7 +64,7 @@ repos:
   # 3. PYTHON CODE LINTING & FORMATTING
   # ===========================================================================
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.16.5
+    rev: v0.16.9
     hooks:
       - id: ruff-check
         name: Ruff Linter

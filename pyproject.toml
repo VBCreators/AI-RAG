@@ -97,3 +97,8 @@ skips = ["B101"]
 [[tool.mypy.overrides]]
 module = "pytest_asyncio"
 ignore_missing_imports = true
+
+[tool.uv]
+override-dependencies = [
+    "pyjwt>=2.15.1",
+]
