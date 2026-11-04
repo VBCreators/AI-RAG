@@ -11,7 +11,7 @@ dependencies = [
     "pip-audit>=2.10.1",
     "pydantic>=2.13.4",
     "pydantic-settings>=2.15.0",
-    "pytest>=9.1.1",
+    "pytest>=9.2.0",
     "python-dotenv>=1.2.3",
     "semgrep>=1.173.0",
     "uvicorn[standard]>=0.52.4",
@@ -27,7 +27,7 @@ build-backend = "uv_build"
 [dependency-groups]
 dev = [
     "httpx>=0.28.1",
-    "pytest>=9.1.1",
+    "pytest>=9.2.0",
     "pytest-asyncio>=1.4.0",
 ]
 
